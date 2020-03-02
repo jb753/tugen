@@ -25,6 +25,15 @@ class SEM:
         self.uv = uv
         self.U = U
 
+        # Assemble Reynolds stress tensor
+        self.R = np.zeros((np.size(y), 3, 3))
+        self.R[:, 0, 0] = self.uu
+        self.R[:, 1, 1] = self.vv
+        self.R[:, 2, 2] = self.ww
+        self.R[:, 1, 0] = self.uv
+        self.R[:, 0, 1] = self.uv
+        self.a = np.linalg.cholesky(self.R)
+
         # Blend to the free-stream length scale
         # Assume y is normalised on BL thickness
         if Linf is None:
@@ -45,11 +54,35 @@ class SEM:
 
         # Calculate number of eddies
         Dens = 1.
-        Vol = np.prod(np.diff(self.box, 1, 1))
-        self.Nk = np.round(Dens * Vol / Lmax ** 3.)
+        self.Vol = np.prod(np.diff(self.box, 1, 1))
+        self.Nk = np.int(Dens * self.Vol / Lmax ** 3.)
 
         # Initialise eddies uniformly over box
-        self.xk =
+        self.xk = np.empty((self.Nk, 3))
+        for i in range(3):
+            self.xk[:, i] = np.random.uniform(bb[i, 0], bb[i, 1], (self.Nk,))
+
+        # Choose eddy orientations
+        self.ek = np.random.choice((-1, 1), self.xk.shape)
+
+    def evaluate(self, yg, zg):
+        """Evaluate fluctuating velocity field associated with the current eddies."""
+
+        # Assemble input grid vector
+        sg = np.shape(yg)
+        xg = np.stack((np.zeros_like(yg), yg, zg), 2)
+
+        # Get distances to all eddies
+        dxk = (np.expand_dims(xg, 2) - np.expand_dims(np.expand_dims(self.xk, 0), 0))
+        dxk_l = np.swapaxes(np.swapaxes(dxk, 0, -1) / self.L, 0, -1)
+
+        # Evaluate shape function
+        f = np.prod(np.where(dxk_l < 1., 0., 1. - dxk_l ** 2.), 3) / (self.L ** 3.) * np.sqrt(self.Vol)
+
+        # Compute sum over all components of aij ekj
+        print(np.shape(self.a))
+        print(np.shape(self.ek))
+        aiek = self.a @ self.ek
 
     def plot_input(self):
 
@@ -73,14 +106,6 @@ class SEM:
         plt.show()
 
 
-def generate():
-    # Initialise eddy positions and intensities
-
-    # Evaluate fluctuating velocity field
-
-    # Move eddies
-
-
 if __name__ == '__main__':
     # Load data and interpolate onto a common grid
     Dat = np.genfromtxt('Ziefle2013_Re_stress.csv', delimiter=',', skip_header=2)
@@ -94,4 +119,12 @@ if __name__ == '__main__':
     uv_in = np.interp(y_in, Dat[:, 6], Dat[:, 7])
 
     theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, uv_in, .75)
-    theSEM.plot_input()
+
+    zgv_in = np.linspace(-1., 1., 11)
+    ygv_in = y_in
+
+    yg_in, zg_in = np.meshgrid(zgv_in, ygv_in)
+
+    theSEM.evaluate(yg_in, zg_in)
+
+    # theSEM.plot_input()
