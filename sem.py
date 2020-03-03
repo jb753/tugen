@@ -80,7 +80,9 @@ class SEM:
         if fsh == 'gaussian':
             self.fac_norm = (np.sqrt(2.) * math.erf(np.sqrt(np.pi / 2.))) ** 2.
         elif fsh == 'quadratic':
-            self.fac_norm = (16./15.) ** 2. * 2.
+            self.fac_norm = (16. / 15.) ** 2. * 2.
+        elif fsh == 'triangular':
+            self.fac_norm = (3. / 2.) ** 2. * 2.
         self.fsh = fsh
 
     def evaluate(self, yg, zg):
@@ -97,6 +99,8 @@ class SEM:
             f = np.where(dxksq < 1., np.exp(-np.pi / 4. * dxksq), 0.)
         elif self.fsh == 'quadratic':
             f = np.where(dxksq < 1., 1. - dxksq, 0.)
+        elif self.fsh == 'triangular':
+            f = np.where(dxksq < 1., 1. - np.sqrt(dxksq), 0.)
 
         # Compute sum
         u = np.einsum('...kij,...kj,...kl->...i', self.a, self.ek, f * self.fac_norm / np.sqrt(self.Dens))
@@ -225,7 +229,7 @@ if __name__ == '__main__':
     ww_in = np.interp(y_in, Dat[:, 4], Dat[:, 5])
     uv_in = np.interp(y_in, Dat[:, 6], Dat[:, 7])
 
-    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75, fsh='quadratic')
+    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75, fsh='triangular')
 
     zgv_in = np.linspace(-.5, 5., 9)
     ygv_in = y_in
