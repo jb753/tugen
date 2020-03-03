@@ -32,6 +32,7 @@ class SEM:
         else:
             L = np.interp(y, [0., 1., 2 * Linf], [0., 0.41, Linf])
         self.L = L[:, None, None, None]
+        self.L = np.ones_like(self.L) * 0.5
 
         # Assemble Reynolds stress tensor
         self.R = np.zeros((np.size(y), 3, 3))
@@ -49,10 +50,12 @@ class SEM:
         bb = np.array([[-Lmax, Lmax],
                        [0, side + Lmax],
                        [-(side + Lmax) / 2, (side + Lmax) / 2]])
+        print(bb)
+        print(np.diff(bb, 1, 1))
         self.box = bb
 
         # Calculate number of eddies
-        Dens = 100.
+        Dens = 1.
         self.Vol = np.prod(np.diff(self.box, 1, 1))
         self.Nk = np.int(Dens * self.Vol / Lmax ** 3.)
 
@@ -82,7 +85,7 @@ class SEM:
         f = np.where(np.abs(dxk) < 1., 1. - dxk ** 2., 0.)
 
         # Take product of all compotents and normalise
-        fsig = np.prod(f, -1, keepdims=True) / self.lk ** 3. * np.sqrt(self.Vol)
+        fsig = np.prod(f, -1, keepdims=True) / (self.lk ** 3.) * np.sqrt(self.Vol)
 
         # Compute sum
         u = np.einsum('...kij,...kj,...kl->...i', self.a, self.ek, fsig) / np.sqrt(self.Nk)
@@ -93,11 +96,12 @@ class SEM:
         """Move the eddies."""
 
         # Time step is normalised by dt_hat = dt * u_tau / delta
-        self.xk[..., 1] = self.xk[..., 1] + dt * self.Uk
+        self.xk[..., 0] = self.xk[..., 0] + dt * self.Uk
 
         # Check if any eddies have left the box
         has_left = self.xk[..., 0] > self.box[0, 1]
         Nk_new = np.sum(has_left)
+        print("%d new eddies" % Nk_new)
         xk_new = np.zeros((1, 1, Nk_new, 3))
         for i in range(3):
             xk_new[..., i] = np.random.uniform(self.box[i, 0], self.box[i, 1], (Nk_new,))
@@ -114,12 +118,14 @@ class SEM:
 
     def loop(self, yg, zg, dt, Nt):
 
+        if np.min(zg) < self.box[2, 0]:
+            raise Exception('Output grid too wide.')
+
         u = np.zeros(np.shape(yg) + (3, Nt))
         print('Time step %d/%d' % (1, Nt), end="")
         for i in range(Nt):
             print('\r', end="")
             print('Time step %d/%d' % (i + 1, Nt), end="")
-            t = np.linspace(0, dt * (Nt - 1000), Nt)
             u[..., i] = self.evaluate(yg, zg)
             self.convect(dt)
 
@@ -133,7 +139,7 @@ class SEM:
         a[0].plot(self.uu, self.y_t, 'x', label="$\overline{u\'u\'}$")
         a[0].plot(self.vv, self.y_t, 'x', label="$\overline{v\'v\'}$")
         a[0].plot(self.ww, self.y_t, 'x', label="$\overline{w\'w\'}$")
-        a[0].plot(self.uv, self.y_t, 'x', label="$\overline{u\'v\'}$")
+        a[0].plot(-self.uv, self.y_t, 'x', label="$-\overline{u\'v\'}$")
 
         a[1].plot(self.L.flatten(), self.y_t, 'kx')
 
@@ -154,13 +160,15 @@ class SEM:
         a[0].plot(self.uu, self.y_t, 'x', label="$\overline{u\'u\'}$")
         a[0].plot(self.vv, self.y_t, 'x', label="$\overline{v\'v\'}$")
         a[0].plot(self.ww, self.y_t, 'x', label="$\overline{w\'w\'}$")
-        a[0].plot(self.uv, self.y_t, 'x', label="$\overline{u\'v\'}$")
+        a[0].plot(-self.uv, self.y_t, 'x', label="-$\overline{u\'v\'}$")
 
         # Calculate stats
         uu = np.mean(self.u[..., 0, :] ** 2., (-2, -1))
         vv = np.mean(self.u[..., 1, :] ** 2., (-2, -1))
         ww = np.mean(self.u[..., 2, :] ** 2., (-2, -1))
-        uv = np.mean(self.u[..., 0, :] * self.u[..., 1, :], (-2, -1))
+        uv = -np.mean(self.u[..., 0, :] * self.u[..., 1, :], (-2, -1))
+
+        a[0].set_prop_cycle(None)
 
         a[0].plot(uu, self.y_t, '-')
         a[0].plot(vv, self.y_t, '-')
@@ -169,7 +177,7 @@ class SEM:
 
         a[1].plot(self.L.flatten(), self.y_t, 'kx')
 
-        a[2].plot(self.u[10, 10, 0, :].flatten())
+        a[2].plot(self.u[1, 1, 0, :].flatten())
 
         a[0].set_ylabel("$y/\delta$")
         a[0].set_xlabel("Reynolds Stress, $\overline{u_i\'u_j\'}$")
@@ -190,24 +198,22 @@ if __name__ == '__main__':
                 Dat[m:, n] = Dat[m - 1, n]
                 break
 
-    y_in = np.arctanh(np.linspace(0.005, .95, 51))
+    y_in = np.arctanh(np.linspace(0.005, .95, 17))
     y_in = y_in / np.max(y_in) * 1.0
-    U_in = np.where(y_in < 1., y_in ** (1. / 7.), 1.0) * 100.
+    U_in = np.where(y_in < 1., y_in ** (1. / 7.), 1.0) * 22.
 
     uu_in = np.interp(y_in, Dat[:, 0], Dat[:, 1])
     vv_in = np.interp(y_in, Dat[:, 2], Dat[:, 3])
     ww_in = np.interp(y_in, Dat[:, 4], Dat[:, 5])
     uv_in = np.interp(y_in, Dat[:, 6], Dat[:, 7])
 
-    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, uv_in, .75)
+    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75)
 
-    # theSEM.plot_input()
-
-    zgv_in = np.linspace(-1., 1., 11)
+    zgv_in = np.linspace(-.5, 5., 9)
     ygv_in = y_in
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
 
-    theSEM.loop(yg_in, zg_in, 0.5, 1000)
+    theSEM.loop(yg_in, zg_in, .01, 1000)
 
     theSEM.plot_output()
