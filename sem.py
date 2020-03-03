@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import math
+import time
 
 
 class SEM:
@@ -25,6 +26,9 @@ class SEM:
         self.ww = ww
         self.uv = uv
         self.U = U
+
+        Uav = np.trapz(self.U, self.y_t.flatten()) / np.trapz(np.ones_like(self.U), self.y_t.flatten())
+        self.U = np.ones_like(self.U) * Uav
 
         # Blend to the free-stream length scale
         # Assume y is normalised on BL thickness
@@ -57,6 +61,7 @@ class SEM:
         Dens = 1.
         self.Vol = np.prod(np.diff(self.box, 1, 1))
         self.Nk = np.int(Dens * self.Vol / Lmax ** 3.)
+        self.Dens = Dens
 
         # Initialise eddies uniformly over box
         self.xk = np.empty((1, 1, self.Nk, 3))
@@ -74,6 +79,9 @@ class SEM:
         # = (int from -1 to 1 of fsh**2) **2
         if fsh == 'gaussian':
             self.fac_norm = (np.sqrt(2.) * math.erf(np.sqrt(np.pi / 2.))) ** 2.
+        elif fsh == 'quadratic':
+            self.fac_norm = (16./15.) ** 2. * 2.
+        self.fsh = fsh
 
     def evaluate(self, yg, zg):
         """Evaluate fluctuating velocity field associated with the current eddies."""
@@ -82,13 +90,16 @@ class SEM:
         xg = np.stack((np.zeros_like(yg), yg, zg), 2)[:, :, None, :]
 
         # Get distances to all eddies
-        dxk = np.sum(((xg - self.xk) / self.lk) ** 2., -1, keepdims=True)
+        dxksq = np.sum(((xg - self.xk) / self.lk) ** 2., -1, keepdims=True)
 
         # Evaluate components shape function
-        f = np.where(dxk < 1., np.exp(-np.pi / 4. * dxk), 0.) * self.fac_norm
+        if self.fsh == 'gaussian':
+            f = np.where(dxksq < 1., np.exp(-np.pi / 4. * dxksq), 0.)
+        elif self.fsh == 'quadratic':
+            f = np.where(dxksq < 1., 1. - dxksq, 0.)
 
         # Compute sum
-        u = np.einsum('...kij,...kj,...kl->...i', self.a, self.ek, f)
+        u = np.einsum('...kij,...kj,...kl->...i', self.a, self.ek, f * self.fac_norm / np.sqrt(self.Dens))
 
         return u
 
@@ -101,9 +112,8 @@ class SEM:
         # Check if any eddies have left the box
         has_left = self.xk[..., 0] > self.box[0, 1]
         Nk_new = np.sum(has_left)
-        print("%d new eddies" % Nk_new)
         xk_new = np.zeros((1, 1, Nk_new, 3))
-        for i in range(3):
+        for i in [1, 2]:
             xk_new[..., i] = np.random.uniform(self.box[i, 0], self.box[i, 1], (Nk_new,))
         xk_new[..., 0] = self.box[0, 0]
 
@@ -123,10 +133,11 @@ class SEM:
             raise Exception('Output grid too wide.')
 
         u = np.zeros(np.shape(yg) + (3, Nt))
-        print('Time step %d/%d' % (1, Nt), end="")
+        print('Time step %d/%d' % (0, Nt), end="")
         for i in range(Nt):
-            print('\r', end="")
-            print('Time step %d/%d' % (i + 1, Nt), end="")
+            if not np.mod(i, 50):
+                print('\r', end="")
+                print('Time step %d/%d' % (i, Nt), end="")
             u[..., i] = self.evaluate(yg, zg)
             self.convect(dt)
 
@@ -195,7 +206,7 @@ class SEM:
 
 if __name__ == '__main__':
 
-    np.random.seed(0)
+    start_time = time.clock()
 
     # Load data and interpolate onto a common grid
     Dat = np.genfromtxt('Ziefle2013_Re_stress.csv', delimiter=',', skip_header=2)
@@ -208,14 +219,13 @@ if __name__ == '__main__':
     y_in = np.arctanh(np.linspace(0.005, .95, 17))
     y_in = y_in / np.max(y_in) * 1.0
     U_in = np.where(y_in < 1., y_in ** (1. / 7.), 1.0) * 22.
-    U_in = np.ones_like(U_in) * 22.
 
     uu_in = np.interp(y_in, Dat[:, 0], Dat[:, 1])
     vv_in = np.interp(y_in, Dat[:, 2], Dat[:, 3])
     ww_in = np.interp(y_in, Dat[:, 4], Dat[:, 5])
     uv_in = np.interp(y_in, Dat[:, 6], Dat[:, 7])
 
-    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75)
+    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75, fsh='quadratic')
 
     zgv_in = np.linspace(-.5, 5., 9)
     ygv_in = y_in
@@ -224,5 +234,6 @@ if __name__ == '__main__':
 
     theSEM.loop(yg_in, zg_in, .001, 10000)
 
-    theSEM.plot_input()
+    print(time.clock() - start_time, "seconds")
+
     theSEM.plot_output()
