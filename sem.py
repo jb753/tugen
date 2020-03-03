@@ -1,10 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import math
 
 
 class SEM:
 
-    def __init__(self, y, U, uu, vv=None, ww=None, uv=None, Linf=None):
+    def __init__(self, y, U, uu, vv=None, ww=None, uv=None, Linf=None, fsh='gaussian'):
         """Initialise with target Reynolds stress profile.
 
         We normalise velocity with friction velocity, length with BL thickness."""
@@ -32,7 +33,7 @@ class SEM:
         else:
             L = np.interp(y, [0., 1., 2 * Linf], [0., 0.41, Linf])
         self.L = L[:, None, None, None]
-        self.L = np.ones_like(self.L) * 0.5
+        self.L = np.ones_like(self.L) * 0.1
 
         # Assemble Reynolds stress tensor
         self.R = np.zeros((np.size(y), 3, 3))
@@ -50,8 +51,6 @@ class SEM:
         bb = np.array([[-Lmax, Lmax],
                        [0, side + Lmax],
                        [-(side + Lmax) / 2, (side + Lmax) / 2]])
-        print(bb)
-        print(np.diff(bb, 1, 1))
         self.box = bb
 
         # Calculate number of eddies
@@ -71,24 +70,25 @@ class SEM:
         # Choose eddy orientations
         self.ek = np.random.choice((-1, 1), self.xk.shape)
 
+        # Choose shape function normalisation factor
+        # = (int from -1 to 1 of fsh**2) **2
+        if fsh == 'gaussian':
+            self.fac_norm = (np.sqrt(2.) * math.erf(np.sqrt(np.pi / 2.))) ** 2.
+
     def evaluate(self, yg, zg):
         """Evaluate fluctuating velocity field associated with the current eddies."""
 
         # Assemble input grid vector
-        sg = np.shape(yg)
         xg = np.stack((np.zeros_like(yg), yg, zg), 2)[:, :, None, :]
 
         # Get distances to all eddies
-        dxk = (xg - self.xk) / self.lk
+        dxk = np.sum(((xg - self.xk) / self.lk) ** 2., -1, keepdims=True)
 
         # Evaluate components shape function
-        f = np.where(np.abs(dxk) < 1., 1. - dxk ** 2., 0.)
-
-        # Take product of all compotents and normalise
-        fsig = np.prod(f, -1, keepdims=True) / (self.lk ** 3.) * np.sqrt(self.Vol)
+        f = np.where(dxk < 1., np.exp(-np.pi / 4. * dxk), 0.) * self.fac_norm
 
         # Compute sum
-        u = np.einsum('...kij,...kj,...kl->...i', self.a, self.ek, fsig) / np.sqrt(self.Nk)
+        u = np.einsum('...kij,...kj,...kl->...i', self.a, self.ek, f)
 
         return u
 
@@ -105,6 +105,7 @@ class SEM:
         xk_new = np.zeros((1, 1, Nk_new, 3))
         for i in range(3):
             xk_new[..., i] = np.random.uniform(self.box[i, 0], self.box[i, 1], (Nk_new,))
+        xk_new[..., 0] = self.box[0, 0]
 
         # Get length scales associated with each eddy
         lk_new = np.interp(xk_new[..., 1], self.y_t.flatten(), self.L.flatten())[..., None]
@@ -166,16 +167,19 @@ class SEM:
         uu = np.mean(self.u[..., 0, :] ** 2., (-2, -1))
         vv = np.mean(self.u[..., 1, :] ** 2., (-2, -1))
         ww = np.mean(self.u[..., 2, :] ** 2., (-2, -1))
-        uv = -np.mean(self.u[..., 0, :] * self.u[..., 1, :], (-2, -1))
+        uv = np.mean(self.u[..., 0, :] * self.u[..., 1, :], (-2, -1))
 
         a[0].set_prop_cycle(None)
 
         a[0].plot(uu, self.y_t, '-')
         a[0].plot(vv, self.y_t, '-')
         a[0].plot(ww, self.y_t, '-')
-        a[0].plot(uv, self.y_t, '-')
+        a[0].plot(-uv, self.y_t, '-')
 
-        a[1].plot(self.L.flatten(), self.y_t, 'kx')
+        a[1].plot(uu / self.uu, self.y_t, '-')
+        a[1].plot(vv / self.vv, self.y_t, '-')
+        a[1].plot(ww / self.ww, self.y_t, '-')
+        a[1].plot(uv / self.uv, self.y_t, '-')
 
         a[2].plot(self.u[1, 1, 0, :].flatten())
 
@@ -190,6 +194,9 @@ class SEM:
 
 
 if __name__ == '__main__':
+
+    np.random.seed(0)
+
     # Load data and interpolate onto a common grid
     Dat = np.genfromtxt('Ziefle2013_Re_stress.csv', delimiter=',', skip_header=2)
     for n in range(np.size(Dat, 1)):
@@ -201,6 +208,7 @@ if __name__ == '__main__':
     y_in = np.arctanh(np.linspace(0.005, .95, 17))
     y_in = y_in / np.max(y_in) * 1.0
     U_in = np.where(y_in < 1., y_in ** (1. / 7.), 1.0) * 22.
+    U_in = np.ones_like(U_in) * 22.
 
     uu_in = np.interp(y_in, Dat[:, 0], Dat[:, 1])
     vv_in = np.interp(y_in, Dat[:, 2], Dat[:, 3])
@@ -214,6 +222,7 @@ if __name__ == '__main__':
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
 
-    theSEM.loop(yg_in, zg_in, .01, 1000)
+    theSEM.loop(yg_in, zg_in, .001, 10000)
 
+    theSEM.plot_input()
     theSEM.plot_output()
