@@ -84,6 +84,7 @@ class SEM:
             self.fac_norm = 16. / 15.
         elif fsh == 'triangular':
             self.fac_norm = 2. / 3.
+        self.fac_norm = 1 / np.sqrt(self.fac_norm) * (2./np.sqrt(3.))/ np.sqrt(self.Nk)  / np.sqrt(np.sqrt(np.max(self.L)/0.1)) * np.sqrt((self.Vol/.576)**(1./3.))
         self.fsh = fsh
 
     def evaluate(self, yg, zg):
@@ -106,10 +107,10 @@ class SEM:
             raise Exception('Invalid shape function')
 
         # Normalise
-        f = f / np.sqrt(self.fac_norm)
+        f = f * self.fac_norm
 
         # Compute sum
-        u = np.einsum('...kij,...kj,...kl->...i', self.a, self.ek, f) / np.sqrt(self.Nk) * 2./np.sqrt(3.)
+        u = np.einsum('...kij,...kj,...kl->...i', self.a, self.ek, f)
 
         return u
 
@@ -258,7 +259,7 @@ if __name__ == '__main__':
     vv_in[y_in > 1.] = 0.005 * 22.
     ww_in[y_in > 1.] = 0.005 * 22.
 
-    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75, fsh='triangular')
+    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75, fsh='quadratic')
 
     zgv_in = np.linspace(-.5, 5., 9)
     ygv_in = y_in
