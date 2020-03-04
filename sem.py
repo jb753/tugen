@@ -62,6 +62,7 @@ class SEM:
         self.Vol = np.prod(np.diff(self.box, 1, 1))
         self.Nk = np.int(Dens * self.Vol / Lmax ** 3.)
         self.Dens = Dens
+        self.side = side
 
         # Initialise eddies uniformly over box
         self.xk = np.empty((1, 1, self.Nk, 3))
@@ -78,11 +79,11 @@ class SEM:
         # Choose shape function normalisation factor
         # = (int from -1 to 1 of fsh**2) **2
         if fsh == 'gaussian':
-            self.fac_norm = (np.sqrt(2.) * math.erf(np.sqrt(np.pi / 2.))) ** 2.
+            self.fac_norm = math.erf(np.sqrt(np.pi * 2.)) / np.sqrt(2.)
         elif fsh == 'quadratic':
-            self.fac_norm = (16. / 15.) ** 2. * 2.
+            self.fac_norm = 16. / 15.
         elif fsh == 'triangular':
-            self.fac_norm = (3. / 2.) ** 2. * 2.
+            self.fac_norm = 2. / 3.
         self.fsh = fsh
 
     def evaluate(self, yg, zg):
@@ -92,18 +93,23 @@ class SEM:
         xg = np.stack((np.zeros_like(yg), yg, zg), 2)[:, :, None, :]
 
         # Get distances to all eddies
-        dxksq = np.sum(((xg - self.xk) / self.lk) ** 2., -1, keepdims=True)
+        dxksq = ((xg - self.xk) / self.lk) ** 2.
 
         # Evaluate components shape function
         if self.fsh == 'gaussian':
-            f = np.where(dxksq < 1., np.exp(-np.pi / 4. * dxksq), 0.)
+            f = np.where(dxksq < 1., np.exp(-np.pi * dxksq), 0.)
         elif self.fsh == 'quadratic':
             f = np.where(dxksq < 1., 1. - dxksq, 0.)
         elif self.fsh == 'triangular':
             f = np.where(dxksq < 1., 1. - np.sqrt(dxksq), 0.)
+        else:
+            raise Exception('Invalid shape function')
+
+        # Normalise
+        f = f / np.sqrt(self.fac_norm)
 
         # Compute sum
-        u = np.einsum('...kij,...kj,...kl->...i', self.a, self.ek, f * self.fac_norm / np.sqrt(self.Dens))
+        u = np.einsum('...kij,...kj,...kl->...i', self.a, self.ek, f) / np.sqrt(self.Nk) * 2./np.sqrt(3.)
 
         return u
 
@@ -133,6 +139,8 @@ class SEM:
 
     def loop(self, yg, zg, dt, Nt):
 
+        start_time = time.clock()
+
         if np.min(zg) < self.box[2, 0]:
             raise Exception('Output grid too wide.')
 
@@ -145,9 +153,27 @@ class SEM:
             u[..., i] = self.evaluate(yg, zg)
             self.convect(dt)
 
+        print(time.clock() - start_time, "seconds")
+
         self.u = u
         self.yg = yg
         self.zg = zg
+
+        # Calculate stats
+        uu = np.mean(self.u[..., 0, :] ** 2., (-2, -1))
+        vv = np.mean(self.u[..., 1, :] ** 2., (-2, -1))
+        ww = np.mean(self.u[..., 2, :] ** 2., (-2, -1))
+        uv = np.mean(self.u[..., 0, :] * self.u[..., 1, :], (-2, -1))
+
+        # Calc errors
+        err = np.stack((uu / self.uu,
+                        vv / self.vv,
+                        ww / self.ww,
+                        uv / self.uv))
+
+        err_av = np.mean(err[:, np.logical_and(self.y_t > 0.2, self.y_t < 0.6)], (0, 1))
+
+        return err_av
 
     def plot_input(self):
 
@@ -210,8 +236,6 @@ class SEM:
 
 if __name__ == '__main__':
 
-    start_time = time.clock()
-
     # Load data and interpolate onto a common grid
     Dat = np.genfromtxt('Ziefle2013_Re_stress.csv', delimiter=',', skip_header=2)
     for n in range(np.size(Dat, 1)):
@@ -229,6 +253,11 @@ if __name__ == '__main__':
     ww_in = np.interp(y_in, Dat[:, 4], Dat[:, 5])
     uv_in = np.interp(y_in, Dat[:, 6], Dat[:, 7])
 
+    uv_in[y_in > 1.] = 0.0
+    uu_in[y_in > 1.] = 0.005 * 22.
+    vv_in[y_in > 1.] = 0.005 * 22.
+    ww_in[y_in > 1.] = 0.005 * 22.
+
     theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75, fsh='triangular')
 
     zgv_in = np.linspace(-.5, 5., 9)
@@ -236,8 +265,6 @@ if __name__ == '__main__':
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
 
-    theSEM.loop(yg_in, zg_in, .001, 10000)
-
-    print(time.clock() - start_time, "seconds")
+    print(theSEM.loop(yg_in, zg_in, .001, 10000))
 
     theSEM.plot_output()
