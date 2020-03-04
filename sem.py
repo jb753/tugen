@@ -60,7 +60,7 @@ class SEM:
         # Calculate number of eddies
         Dens = 1.
         self.Vol = np.prod(np.diff(self.box, 1, 1))
-        self.Nk = np.int(Dens * self.Vol / Lmax ** 3.)
+        self.Nk = np.int(Dens * self.Vol / Lmax ** 3.) - 1
         self.Dens = Dens
         self.side = side
 
@@ -84,7 +84,7 @@ class SEM:
             self.fac_norm = 16. / 15.
         elif fsh == 'triangular':
             self.fac_norm = 2. / 3.
-        self.fac_norm = 1 / np.sqrt(self.fac_norm) * (2./np.sqrt(3.))/ np.sqrt(self.Nk)  / np.sqrt(np.sqrt(np.max(self.L)/0.1)) * np.sqrt((self.Vol/.576)**(1./3.))
+        self.fac_norm = 1. / np.sqrt(self.fac_norm)
         self.fsh = fsh
 
     def evaluate(self, yg, zg):
@@ -109,8 +109,10 @@ class SEM:
         # Normalise
         f = f * self.fac_norm
 
+        fsig = np.prod(f, -1, keepdims=True) * np.sqrt(self.Vol / np.max(self.L)**3.)
+
         # Compute sum
-        u = np.einsum('...kij,...kj,...kl->...i', self.a, self.ek, f)
+        u = np.einsum('...kij,...kj,...kl->...i', self.a, self.ek, fsig) / np.sqrt(self.Nk)
 
         return u
 
@@ -259,13 +261,13 @@ if __name__ == '__main__':
     vv_in[y_in > 1.] = 0.005 * 22.
     ww_in[y_in > 1.] = 0.005 * 22.
 
-    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75, fsh='quadratic')
+    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75, fsh='triangular')
 
-    zgv_in = np.linspace(-.5, 5., 9)
+    zgv_in = np.linspace(-.5, .5, 9)
     ygv_in = y_in
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
 
     print(theSEM.loop(yg_in, zg_in, .001, 10000))
-
+    print(theSEM.Nk)
     theSEM.plot_output()
