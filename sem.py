@@ -37,7 +37,7 @@ class SEM:
         else:
             L = np.interp(y, [0., 1., 2 * Linf], [0., 0.41, Linf])
         self.L = L[:, None, None, None]
-        self.L = np.ones_like(self.L) * 0.1
+        #self.L = np.ones_like(self.L) * 0.2
 
         # Assemble Reynolds stress tensor
         self.R = np.zeros((np.size(y), 3, 3))
@@ -58,9 +58,9 @@ class SEM:
         self.box = bb
 
         # Calculate number of eddies
-        Dens = 1.
+        Dens = 200.
         self.Vol = np.prod(np.diff(self.box, 1, 1))
-        self.Nk = np.int(Dens * self.Vol / Lmax ** 3.) - 1
+        self.Nk = np.int(Dens * self.Vol / Lmax ** 3.)
         self.Dens = Dens
         self.side = side
 
@@ -109,7 +109,7 @@ class SEM:
         # Normalise
         f = f * self.fac_norm
 
-        fsig = np.prod(f, -1, keepdims=True) * np.sqrt(self.Vol / np.max(self.L)**3.)
+        fsig = np.prod(f, -1, keepdims=True) * np.sqrt(self.Vol / self.lk ** 3.)
 
         # Compute sum
         u = np.einsum('...kij,...kj,...kl->...i', self.a, self.ek, fsig) / np.sqrt(self.Nk)
