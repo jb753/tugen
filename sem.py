@@ -6,7 +6,7 @@ import time
 
 class SEM:
 
-    def __init__(self, y, U, uu, vv=None, ww=None, uv=None, Linf=None, fsh='gaussian'):
+    def __init__(self, y, U, uu, vv=None, ww=None, uv=None, Linf=None, Dens=1., fsh='gaussian'):
         """Initialise with target Reynolds stress profile.
 
         We normalise velocity with friction velocity, length with BL thickness."""
@@ -27,9 +27,6 @@ class SEM:
         self.uv = uv
         self.U = U
 
-        Uav = np.trapz(self.U, self.y_t.flatten()) / np.trapz(np.ones_like(self.U), self.y_t.flatten())
-        self.U = np.ones_like(self.U) * Uav
-
         # Blend to the free-stream length scale
         # Assume y is normalised on BL thickness
         if Linf is None:
@@ -37,7 +34,6 @@ class SEM:
         else:
             L = np.interp(y, [0., 1., 2 * Linf], [0., 0.41, Linf])
         self.L = L[:, None, None, None]
-        #self.L = np.ones_like(self.L) * 0.2
 
         # Assemble Reynolds stress tensor
         self.R = np.zeros((np.size(y), 3, 3))
@@ -56,9 +52,9 @@ class SEM:
                        [0, side + Lmax],
                        [-(side + Lmax) / 2, (side + Lmax) / 2]])
         self.box = bb
+        print(np.ptp(bb, 1))
 
         # Calculate number of eddies
-        Dens = 200.
         self.Vol = np.prod(np.diff(self.box, 1, 1))
         self.Nk = np.int(Dens * self.Vol / Lmax ** 3.)
         self.Dens = Dens
@@ -247,27 +243,30 @@ if __name__ == '__main__':
                 Dat[m:, n] = Dat[m - 1, n]
                 break
 
-    y_in = np.arctanh(np.linspace(0.005, .95, 17))
-    y_in = y_in / np.max(y_in) * 1.0
-    U_in = np.where(y_in < 1., y_in ** (1. / 7.), 1.0) * 22.
+    d99 = 0.5
+    cf = 4.2e-3
+    Vtau_Vinf_sq = cf / 2.
+    Tuinf = 0.005
 
-    uu_in = np.interp(y_in, Dat[:, 0], Dat[:, 1])
-    vv_in = np.interp(y_in, Dat[:, 2], Dat[:, 3])
-    ww_in = np.interp(y_in, Dat[:, 4], Dat[:, 5])
-    uv_in = np.interp(y_in, Dat[:, 6], Dat[:, 7])
+    y_in = np.concatenate((np.arctanh(np.linspace(0.005, .95, 17)) * d99, np.linspace(0.5, 8., 11)))
+    U_in = np.where((y_in / d99) < 1., (y_in / d99) ** (1. / 7.), 1.0)
 
-    uv_in[y_in > 1.] = 0.0
-    uu_in[y_in > 1.] = 0.005 * 22.
-    vv_in[y_in > 1.] = 0.005 * 22.
-    ww_in[y_in > 1.] = 0.005 * 22.
+    uu_in = np.interp(y_in / d99, Dat[:, 0], Dat[:, 1]) * Vtau_Vinf_sq
+    vv_in = np.interp(y_in / d99, Dat[:, 2], Dat[:, 3]) * Vtau_Vinf_sq
+    ww_in = np.interp(y_in / d99, Dat[:, 4], Dat[:, 5]) * Vtau_Vinf_sq
+    uv_in = np.interp(y_in / d99, Dat[:, 6], Dat[:, 7]) * Vtau_Vinf_sq
 
-    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75, fsh='triangular')
+    uv_in[y_in / d99 > 1.] = 0.0
+    uu_in[y_in / d99 > 1.] = Tuinf ** 2.
+    vv_in[y_in / d99 > 1.] = Tuinf ** 2.
+    ww_in[y_in / d99 > 1.] = Tuinf ** 2.
 
-    zgv_in = np.linspace(-.5, .5, 9)
+    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, 0.75, Dens=200., fsh='quadratic')
+
+    zgv_in = np.linspace(-1.5, 1.5, 9)
     ygv_in = y_in
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
 
-    print(theSEM.loop(yg_in, zg_in, .001, 10000))
-    print(theSEM.Nk)
+    print(theSEM.loop(yg_in, zg_in, .02, 1000))
     theSEM.plot_output()
