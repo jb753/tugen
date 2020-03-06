@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.interpolate
 import matplotlib.pyplot as plt
 import math
 import time
@@ -42,7 +43,9 @@ class SEM:
         self.R[:, 2, 2] = self.ww
         self.R[:, 1, 0] = self.uv
         self.R[:, 0, 1] = self.uv
-        self.a = np.linalg.cholesky(self.R)[:, None, None, ...]
+
+        # Make interpolator for Reynolds stress
+        self.fR = scipy.interpolate.interp1d(y, self.R, axis=0, fill_value='extrapolate')
 
         # Set bounding box
         # Square centered around z=0, from 0 to ymax, at x=0, with Lmax space around it
@@ -83,7 +86,7 @@ class SEM:
         self.fac_norm = 1. / np.sqrt(self.fac_norm)
         self.fsh = fsh
 
-    def evaluate(self, yg, zg):
+    def evaluate(self, yg, zg, ag):
         """Evaluate fluctuating velocity field associated with the current eddies."""
 
         # Assemble input grid vector
@@ -108,7 +111,7 @@ class SEM:
         fsig = np.prod(f, -1, keepdims=True) * np.sqrt(self.Vol / self.lk ** 3.)
 
         # Compute sum
-        u = np.einsum('...kij,...kj,...kl->...i', self.a, self.ek, fsig) / np.sqrt(self.Nk)
+        u = np.einsum('...kmij,...kj,...kl->...i', ag, self.ek, fsig) / np.sqrt(self.Nk)
 
         return u
 
@@ -143,36 +146,22 @@ class SEM:
         if np.min(zg) < self.box[2, 0]:
             raise Exception('Output grid too wide.')
 
+        # Get Reynolds stresses at grid points of interest
+        Rg = self.fR(yg)
+        ag = np.linalg.cholesky(Rg)[:, None, None, ...]
+
         u = np.zeros(np.shape(yg) + (3, Nt))
         print('Time step %d/%d' % (0, Nt), end="")
         for i in range(Nt):
             if not np.mod(i, 50):
                 print('\r', end="")
                 print('Time step %d/%d' % (i, Nt), end="")
-            u[..., i] = self.evaluate(yg, zg)
+            u[..., i] = self.evaluate(yg, zg, ag)
             self.convect(dt)
 
         print('\nElapsed time:', time.perf_counter() - start_time, "seconds")
 
-        self.u = u
-
-        # Calculate stats
-        uu = np.mean(self.u[..., 0, :] ** 2., (-2, -1))
-        vv = np.mean(self.u[..., 1, :] ** 2., (-2, -1))
-        ww = np.mean(self.u[..., 2, :] ** 2., (-2, -1))
-        uv = np.mean(self.u[..., 0, :] * self.u[..., 1, :], (-2, -1))
-
-        # Calc errors
-        err = np.stack((uu - self.uu,
-                        vv - self.vv,
-                        ww - self.ww,
-                        uv - self.uv))
-
-        err_av = np.mean(err[:, np.logical_and(self.y_t > 0.2, self.y_t < 0.6)], (0, 1))
-
-        print('Mean error: ', err_av)
-
-        return
+        return u
 
     def plot_input(self):
 
@@ -195,7 +184,7 @@ class SEM:
         plt.tight_layout()
         plt.show()
 
-    def plot_output(self):
+    def plot_output(self, ygv, u):
 
         f, a = plt.subplots(1, 3)
         a[0].plot(self.uu, self.y_t, 'x', label="$\overline{u\'u\'}$")
@@ -204,24 +193,17 @@ class SEM:
         a[0].plot(-self.uv, self.y_t, 'x', label="-$\overline{u\'v\'}$")
 
         # Calculate stats
-        uu = np.mean(self.u[..., 0, :] ** 2., (-2, -1))
-        vv = np.mean(self.u[..., 1, :] ** 2., (-2, -1))
-        ww = np.mean(self.u[..., 2, :] ** 2., (-2, -1))
-        uv = np.mean(self.u[..., 0, :] * self.u[..., 1, :], (-2, -1))
+        uu = np.mean(u[..., 0, :] ** 2., (-2, -1))
+        vv = np.mean(u[..., 1, :] ** 2., (-2, -1))
+        ww = np.mean(u[..., 2, :] ** 2., (-2, -1))
+        uv = np.mean(u[..., 0, :] * u[..., 1, :], (-2, -1))
 
         a[0].set_prop_cycle(None)
 
-        a[0].plot(uu, self.y_t, '-')
-        a[0].plot(vv, self.y_t, '-')
-        a[0].plot(ww, self.y_t, '-')
-        a[0].plot(-uv, self.y_t, '-')
-
-        a[1].plot(uu - self.uu, self.y_t, '-')
-        a[1].plot(vv - self.vv, self.y_t, '-')
-        a[1].plot(ww - self.ww, self.y_t, '-')
-        a[1].plot(uv - self.uv, self.y_t, '-')
-
-        a[2].plot(self.u[1, 1, 0, :].flatten())
+        a[0].plot(uu, ygv, 'o')
+        a[0].plot(vv, ygv, 'o')
+        a[0].plot(ww, ygv, 'o')
+        a[0].plot(-uv, ygv, 'o')
 
         a[0].set_ylabel("$y/\delta$")
         a[0].set_xlabel("Reynolds Stress, $\overline{u_i\'u_j\'}$")
@@ -248,7 +230,7 @@ if __name__ == '__main__':
     Vtau_Vinf_sq = cf / 2.
     Tuinf = 0.005
 
-    y_in = np.concatenate((np.arctanh(np.linspace(0.005, .95, 17)) * d99, np.linspace(0.5, 8., 11)))
+    y_in = np.concatenate((np.arctanh(np.linspace(0.005, .95, 17)) * d99, np.linspace(0.5, 1., 3)))
     U_in = np.where((y_in / d99) < 1., (y_in / d99) ** (1. / 7.), 1.0)
 
     uu_in = np.interp(y_in / d99, Dat[:, 0], Dat[:, 1]) * Vtau_Vinf_sq
@@ -261,12 +243,12 @@ if __name__ == '__main__':
     vv_in[y_in / d99 > 1.] = Tuinf ** 2.
     ww_in[y_in / d99 > 1.] = Tuinf ** 2.
 
-    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, 0.75, Dens=2., fsh='quadratic')
+    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, 0.75, Dens=100., fsh='quadratic')
 
-    zgv_in = np.linspace(-1.5, 1.5, 9)
-    ygv_in = y_in
+    zgv_in = np.linspace(-.5, .5, 2)
+    ygv_in = y_in#np.linspace(0.01, .4, 17)
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
 
-    theSEM.loop(yg_in, zg_in, .02, 1000)
-    theSEM.plot_output()
+    u_out = theSEM.loop(yg_in, zg_in, .02, 10000)
+    theSEM.plot_output(ygv_in, u_out)
