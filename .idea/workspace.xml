@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="e2b0fe24-293e-4292-b9db-adcac38e27e3" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
+    <list default="true" id="e2b0fe24-293e-4292-b9db-adcac38e27e3" name="Default Changelist" comment="Working with no magic factors for all shape functinons, as long as the box is SQUARE!">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/sem.py" beforeDir="false" afterPath="$PROJECT_DIR$/sem.py" afterDir="false" />
     </list>
@@ -80,7 +79,84 @@
       <option name="project" value="LOCAL" />
       <updated>1583163228716</updated>
     </task>
-    <option name="localTasksCounter" value="2" />
+    <task id="LOCAL-00002" summary="First implementation struggling with NaN in Cholesky Re stress">
+      <created>1583167555192</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1583167555192</updated>
+    </task>
+    <task id="LOCAL-00003" summary="Works but not achieving target Re stresses yet">
+      <created>1583236529358</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1583236529358</updated>
+    </task>
+    <task id="LOCAL-00004" summary="Getting close to target Re stresses, switched to a constant length scale, normalisation is not quite right">
+      <created>1583239020161</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1583239020162</updated>
+    </task>
+    <task id="LOCAL-00005" summary="Reproducing target Re stress with constant L and U">
+      <created>1583248946343</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1583248946343</updated>
+    </task>
+    <task id="LOCAL-00006" summary="Implemented quadratic shape function, timing, bulk velocity averaging">
+      <created>1583251588072</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1583251588072</updated>
+    </task>
+    <task id="LOCAL-00007" summary="Can't quite get normalisation for triangular shape function correct">
+      <created>1583254509535</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1583254509535</updated>
+    </task>
+    <task id="LOCAL-00008" summary="Seems to work for all shape functions with magic factor sqrt(3)/2">
+      <created>1583331197091</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1583331197092</updated>
+    </task>
+    <task id="LOCAL-00009" summary="Magic factor not working again">
+      <created>1583341737179</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1583341737179</updated>
+    </task>
+    <task id="LOCAL-00010" summary="Working with no magic factors for all shape functinons, as long as the box is SQUARE!">
+      <created>1583345286381</created>
+      <option name="number" value="00010" />
+      <option name="presentableId" value="LOCAL-00010" />
+      <option name="project" value="LOCAL" />
+      <updated>1583345286382</updated>
+    </task>
+    <task id="LOCAL-00011" summary="Implemented non-uniform length scale">
+      <created>1583408490103</created>
+      <option name="number" value="00011" />
+      <option name="presentableId" value="LOCAL-00011" />
+      <option name="project" value="LOCAL" />
+      <updated>1583408490103</updated>
+    </task>
+    <task id="LOCAL-00012" summary="Changed the test case to be more like a cooling hole simulation">
+      <created>1583421244247</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1583421244247</updated>
+    </task>
+    <option name="localTasksCounter" value="13" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -98,6 +174,17 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="A commit" />
-    <option name="LAST_COMMIT_MESSAGE" value="A commit" />
+    <MESSAGE value="First implementation struggling with NaN in Cholesky Re stress" />
+    <MESSAGE value="Works but not achieving target Re stresses yet" />
+    <MESSAGE value="Getting close to target Re stresses, switched to a constant length scale, normalisation is not quite right" />
+    <MESSAGE value="Reproducing target Re stress with constant L and U" />
+    <MESSAGE value="Implemented quadratic shape function, timing, bulk velocity averaging" />
+    <MESSAGE value="Can't quite get normalisation for triangular shape function correct" />
+    <MESSAGE value="Seems to work for all shape functions with magic factor sqrt(3)/2" />
+    <MESSAGE value="Magic factor not working again" />
+    <MESSAGE value="Working with no magic factors for all shape functinons, as long as the box is SQUARE!" />
+    <MESSAGE value="Implemented non-uniform length scale" />
+    <MESSAGE value="Changed the test case to be more like a cooling hole simulation" />
+    <option name="LAST_COMMIT_MESSAGE" value="Changed the test case to be more like a cooling hole simulation" />
   </component>
 </project>

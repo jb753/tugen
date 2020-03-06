@@ -52,13 +52,13 @@ class SEM:
                        [0, side + Lmax],
                        [-(side + Lmax) / 2, (side + Lmax) / 2]])
         self.box = bb
-        print(np.ptp(bb, 1))
 
         # Calculate number of eddies
         self.Vol = np.prod(np.diff(self.box, 1, 1))
         self.Nk = np.int(Dens * self.Vol / Lmax ** 3.)
-        self.Dens = Dens
-        self.side = side
+
+        print("Eddy box dimensions: ", np.ptp(bb, 1))
+        print("Number of eddies: ", self.Nk)
 
         # Initialise eddies uniformly over box
         self.xk = np.empty((1, 1, self.Nk, 3))
@@ -138,7 +138,7 @@ class SEM:
 
     def loop(self, yg, zg, dt, Nt):
 
-        start_time = time.clock()
+        start_time = time.perf_counter()
 
         if np.min(zg) < self.box[2, 0]:
             raise Exception('Output grid too wide.')
@@ -152,7 +152,7 @@ class SEM:
             u[..., i] = self.evaluate(yg, zg)
             self.convect(dt)
 
-        print(time.clock() - start_time, "seconds")
+        print('\nElapsed time:', time.perf_counter() - start_time, "seconds")
 
         self.u = u
         self.yg = yg
@@ -165,14 +165,16 @@ class SEM:
         uv = np.mean(self.u[..., 0, :] * self.u[..., 1, :], (-2, -1))
 
         # Calc errors
-        err = np.stack((uu / self.uu,
-                        vv / self.vv,
-                        ww / self.ww,
-                        uv / self.uv))
+        err = np.stack((uu - self.uu,
+                        vv - self.vv,
+                        ww - self.ww,
+                        uv - self.uv))
 
         err_av = np.mean(err[:, np.logical_and(self.y_t > 0.2, self.y_t < 0.6)], (0, 1))
 
-        return err_av
+        print('Mean error: ', err_av)
+
+        return
 
     def plot_input(self):
 
@@ -216,10 +218,10 @@ class SEM:
         a[0].plot(ww, self.y_t, '-')
         a[0].plot(-uv, self.y_t, '-')
 
-        a[1].plot(uu / self.uu, self.y_t, '-')
-        a[1].plot(vv / self.vv, self.y_t, '-')
-        a[1].plot(ww / self.ww, self.y_t, '-')
-        a[1].plot(uv / self.uv, self.y_t, '-')
+        a[1].plot(uu - self.uu, self.y_t, '-')
+        a[1].plot(vv - self.vv, self.y_t, '-')
+        a[1].plot(ww - self.ww, self.y_t, '-')
+        a[1].plot(uv - self.uv, self.y_t, '-')
 
         a[2].plot(self.u[1, 1, 0, :].flatten())
 
@@ -261,12 +263,12 @@ if __name__ == '__main__':
     vv_in[y_in / d99 > 1.] = Tuinf ** 2.
     ww_in[y_in / d99 > 1.] = Tuinf ** 2.
 
-    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, 0.75, Dens=200., fsh='quadratic')
+    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, 0.75, Dens=2., fsh='quadratic')
 
     zgv_in = np.linspace(-1.5, 1.5, 9)
     ygv_in = y_in
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
 
-    print(theSEM.loop(yg_in, zg_in, .02, 1000))
+    theSEM.loop(yg_in, zg_in, .02, 1000)
     theSEM.plot_output()
