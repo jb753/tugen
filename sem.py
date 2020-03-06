@@ -155,8 +155,6 @@ class SEM:
         print('\nElapsed time:', time.perf_counter() - start_time, "seconds")
 
         self.u = u
-        self.yg = yg
-        self.zg = zg
 
         # Calculate stats
         uu = np.mean(self.u[..., 0, :] ** 2., (-2, -1))
