@@ -3,6 +3,7 @@ import scipy.interpolate
 import matplotlib.pyplot as plt
 import math
 import time
+import json
 
 
 class SEM:
@@ -157,8 +158,7 @@ class SEM:
 
         print('\nElapsed time:', time.perf_counter() - start_time, "seconds")
 
-        self.u = u
-        return
+        return u
 
     def plot_input(self):
 
@@ -181,7 +181,7 @@ class SEM:
         plt.tight_layout()
         plt.show()
 
-    def plot_output(self):
+    def plot_output(self, ygv, u):
 
         f, a = plt.subplots(1, 3)
         a[0].plot(self.uu, self.y_t, 'x', label="$\overline{u\'u\'}$")
@@ -190,24 +190,17 @@ class SEM:
         a[0].plot(-self.uv, self.y_t, 'x', label="-$\overline{u\'v\'}$")
 
         # Calculate stats
-        uu = np.mean(self.u[..., 0, :] ** 2., (-2, -1))
-        vv = np.mean(self.u[..., 1, :] ** 2., (-2, -1))
-        ww = np.mean(self.u[..., 2, :] ** 2., (-2, -1))
-        uv = np.mean(self.u[..., 0, :] * self.u[..., 1, :], (-2, -1))
+        uu = np.mean(u[..., 0, :] ** 2., (-2, -1))
+        vv = np.mean(u[..., 1, :] ** 2., (-2, -1))
+        ww = np.mean(u[..., 2, :] ** 2., (-2, -1))
+        uv = np.mean(u[..., 0, :] * u[..., 1, :], (-2, -1))
 
         a[0].set_prop_cycle(None)
 
-        a[0].plot(uu, self.y_t, '-')
-        a[0].plot(vv, self.y_t, '-')
-        a[0].plot(ww, self.y_t, '-')
-        a[0].plot(-uv, self.y_t, '-')
-
-        a[1].plot(uu / self.uu, self.y_t, '-')
-        a[1].plot(vv / self.vv, self.y_t, '-')
-        a[1].plot(ww / self.ww, self.y_t, '-')
-        a[1].plot(uv / self.uv, self.y_t, '-')
-
-        a[2].plot(self.u[1, 1, 0, :].flatten())
+        a[0].plot(uu, ygv, 'o')
+        a[0].plot(vv, ygv, 'o')
+        a[0].plot(ww, ygv, 'o')
+        a[0].plot(-uv, ygv, 'o')
 
         a[0].set_ylabel("$y/\delta$")
         a[0].set_xlabel("Reynolds Stress, $\overline{u_i\'u_j\'}$")
@@ -223,11 +216,21 @@ if __name__ == '__main__':
 
     # Load data and interpolate onto a common grid
     Dat = np.genfromtxt('Ziefle2013_Re_stress.csv', delimiter=',', skip_header=2)
+    ien = np.ones((np.size(Dat, 1, )), dtype=np.int) * np.size(Dat, 0)
     for n in range(np.size(Dat, 1)):
         for m in range(np.size(Dat, 0)):
             if np.isnan(Dat[m, n]):
                 Dat[m:, n] = Dat[m - 1, n]
+                ien[n] = m
                 break
+
+    # Reformat the input data into a dict, save as json
+    d = {'uu': Dat[:ien[0], 0:2].T.tolist(),
+         'vv': Dat[:ien[2], 2:4].T.tolist(),
+         'ww': Dat[:ien[4], 4:6].T.tolist(),
+         'uv': Dat[:ien[6], 6:8].T.tolist()}
+    with open('Re_stress.json', 'w') as fp:
+        json.dump(d, fp, indent=4)
 
     y_in = np.arctanh(np.linspace(0.005, .95, 17))
     y_in = y_in / np.max(y_in) * 1.0
@@ -250,6 +253,12 @@ if __name__ == '__main__':
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
 
-    print(theSEM.loop(yg_in, zg_in, .001, 10000))
-    print(theSEM.Nk)
-    theSEM.plot_output()
+    u_out = theSEM.loop(yg_in, zg_in, .02, 10000)
+    theSEM.plot_output(ygv_in, u_out)
+
+
+class BoundaryLayer(SEM):
+    """Setup the SEM for a boundary layer flow."""
+
+    def __init__(self, del_99, Tu_inf, L_inf):
+        """Initialise with boundary layer thickness and main-stream information"""
