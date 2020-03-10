@@ -3,6 +3,7 @@ import scipy.interpolate
 import matplotlib.pyplot as plt
 import math
 import time
+import json
 
 
 class SEM:
@@ -45,7 +46,9 @@ class SEM:
         self.R[:, 2, 2] = self.ww
         self.R[:, 1, 0] = self.uv
         self.R[:, 0, 1] = self.uv
-        self.a = np.linalg.cholesky(self.R)[:, None, None, ...]
+
+        # Make interpolator for Reynolds stress
+        self.fR = scipy.interpolate.interp1d(y, self.R, axis=0)
 
         # Set bounding box
         # Square centered around z=0, from 0 to ymax, at x=0, with Lmax space around it
@@ -86,7 +89,7 @@ class SEM:
         self.fac_norm = 1. / np.sqrt(self.fac_norm)
         self.fsh = fsh
 
-    def evaluate(self, yg, zg):
+    def evaluate(self, yg, zg, ag):
         """Evaluate fluctuating velocity field associated with the current eddies."""
 
         # Assemble input grid vector
@@ -111,7 +114,7 @@ class SEM:
         fsig = np.prod(f, -1, keepdims=True) * np.sqrt(self.Vol / self.lk ** 3.)
 
         # Compute sum
-        u = np.einsum('...kij,...kj,...kl->...i', self.a, self.ek, fsig) / np.sqrt(self.Nk)
+        u = np.einsum('...kij,...kj,...kl->...i', ag, self.ek, fsig) / np.sqrt(self.Nk)
 
         return u
 
@@ -146,13 +149,17 @@ class SEM:
         if np.min(zg) < self.box[2, 0]:
             raise Exception('Output grid too wide.')
 
+        # Get Reynolds stresses at grid points of interest
+        Rg = self.fR(yg)
+        ag = np.linalg.cholesky(Rg)[:, :, None, ...]
+
         u = np.zeros(np.shape(yg) + (3, Nt))
         print('Time step %d/%d' % (0, Nt), end="")
         for i in range(Nt):
             if not np.mod(i, 50):
                 print('\r', end="")
                 print('Time step %d/%d' % (i, Nt), end="")
-            u[..., i] = self.evaluate(yg, zg)
+            u[..., i] = self.evaluate(yg, zg, ag)
             self.convect(dt)
 
         print('\nElapsed time:', time.perf_counter() - start_time, "seconds")
@@ -181,7 +188,7 @@ class SEM:
         plt.tight_layout()
         plt.show()
 
-    def plot_output(self):
+    def plot_output(self, yg):
 
         f, a = plt.subplots(1, 3)
         a[0].plot(self.uu, self.y_t, 'x', label="$\overline{u\'u\'}$")
@@ -197,15 +204,15 @@ class SEM:
 
         a[0].set_prop_cycle(None)
 
-        a[0].plot(uu, self.y_t, '-')
-        a[0].plot(vv, self.y_t, '-')
-        a[0].plot(ww, self.y_t, '-')
-        a[0].plot(-uv, self.y_t, '-')
+        a[0].plot(uu, yg[:, 0], '-')
+        a[0].plot(vv, yg[:, 0], '-')
+        a[0].plot(ww, yg[:, 0], '-')
+        a[0].plot(-uv, yg[:, 0], '-')
 
-        a[1].plot(uu / self.uu, self.y_t, '-')
-        a[1].plot(vv / self.vv, self.y_t, '-')
-        a[1].plot(ww / self.ww, self.y_t, '-')
-        a[1].plot(uv / self.uv, self.y_t, '-')
+        # a[1].plot(uu / self.uu, self.y_t, '-')
+        # a[1].plot(vv / self.vv, self.y_t, '-')
+        # a[1].plot(ww / self.ww, self.y_t, '-')
+        # a[1].plot(uv / self.uv, self.y_t, '-')
 
         a[2].plot(self.u[1, 1, 0, :].flatten())
 
@@ -214,7 +221,7 @@ class SEM:
         a[1].set_xlabel("Length Scale, $\ell/\delta$")
         a[2].set_xlabel(r"Mean velocity, $U/U_{\tau}$")
 
-        a[0].legend()
+        a[1].legend()
         plt.tight_layout()
         plt.show()
 
@@ -223,11 +230,21 @@ if __name__ == '__main__':
 
     # Load data and interpolate onto a common grid
     Dat = np.genfromtxt('Ziefle2013_Re_stress.csv', delimiter=',', skip_header=2)
+    ien = np.ones((np.size(Dat, 1, )), dtype=np.int) * np.size(Dat, 0)
     for n in range(np.size(Dat, 1)):
         for m in range(np.size(Dat, 0)):
             if np.isnan(Dat[m, n]):
                 Dat[m:, n] = Dat[m - 1, n]
+                ien[n] = m
                 break
+
+    # Reformat the input data into a dict, save as json
+    d = {'uu': Dat[:ien[0], 0:2].T.tolist(),
+         'vv': Dat[:ien[2], 2:4].T.tolist(),
+         'ww': Dat[:ien[4], 4:6].T.tolist(),
+         'uv': Dat[:ien[6], 6:8].T.tolist()}
+    with open('Re_stress.json', 'w') as fp:
+        json.dump(d, fp, indent=4)
 
     y_in = np.arctanh(np.linspace(0.005, .95, 17))
     y_in = y_in / np.max(y_in) * 1.0
@@ -246,10 +263,17 @@ if __name__ == '__main__':
     theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75, use_constant_L=None, Dens=100., fsh='triangular')
 
     zgv_in = np.linspace(-.5, .5, 3)
-    ygv_in = y_in
+    ygv_in = np.linspace(0.2, 0.5, 11)
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
 
     print(theSEM.loop(yg_in, zg_in, .001, 10000))
     print(theSEM.Nk)
-    theSEM.plot_output()
+    theSEM.plot_output(yg_in)
+
+
+class BoundaryLayer(SEM):
+    """Setup the SEM for a boundary layer flow."""
+
+    def __init__(self, del_99, Tu_inf, L_inf):
+        """Initialise with boundary layer thickness and main-stream information"""
