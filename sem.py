@@ -4,11 +4,12 @@ import matplotlib.pyplot as plt
 import math
 import time
 import json
+import importlib.resources as pkg_resources
 
 
 class SEM:
 
-    def __init__(self, y, U, uu, vv=None, ww=None, uv=None, Linf=None, use_constant_L=None, Dens=1., fsh='gaussian'):
+    def __init__(self, y, U, uu, vv=None, ww=None, uv=None, Linf=None, del_99=None, Dens=100., fsh='quadratic'):
         """Initialise with target Reynolds stress profile.
 
         We normalise velocity with friction velocity, length with BL thickness."""
@@ -34,10 +35,8 @@ class SEM:
         if Linf is None:
             L = np.interp(y, [0., 1., 2.], [0., 0.41, 0.41])
         else:
-            L = np.interp(y, [0., 1., 2 * Linf], [0., 0.41, Linf])
+            L = np.interp(y, [0., del_99, 2 * Linf], [0., del_99 * 0.41, Linf])
         self.L = L[:, None, None, None]
-        if use_constant_L is not None:
-            self.L = use_constant_L * np.ones_like(self.L)
 
         # Assemble Reynolds stress tensor
         self.R = np.zeros((np.size(y), 3, 3))
@@ -89,7 +88,7 @@ class SEM:
         self.fac_norm = 1. / np.sqrt(self.fac_norm)
         self.fsh = fsh
 
-    def evaluate(self, yg, zg, ag):
+    def evaluate(self, yg, zg):
         """Evaluate fluctuating velocity field associated with the current eddies."""
 
         # Assemble input grid vector
@@ -97,6 +96,10 @@ class SEM:
 
         # Get distances to all eddies
         dxksq = ((xg - self.xk) / self.lk) ** 2.
+
+        # Get Reynolds stresses at grid points of interest
+        Rg = self.fR(yg)
+        ag = np.linalg.cholesky(Rg)[:, :, None, ...]
 
         # Evaluate components shape function
         if self.fsh == 'gaussian':
@@ -149,17 +152,13 @@ class SEM:
         if np.min(zg) < self.box[2, 0]:
             raise Exception('Output grid too wide.')
 
-        # Get Reynolds stresses at grid points of interest
-        Rg = self.fR(yg)
-        ag = np.linalg.cholesky(Rg)[:, :, None, ...]
-
         u = np.zeros(np.shape(yg) + (3, Nt))
         print('Time step %d/%d' % (0, Nt), end="")
         for i in range(Nt):
             if not np.mod(i, 50):
                 print('\r', end="")
                 print('Time step %d/%d' % (i, Nt), end="")
-            u[..., i] = self.evaluate(yg, zg, ag)
+            u[..., i] = self.evaluate(yg, zg)
             self.convect(dt)
 
         print('\nElapsed time:', time.perf_counter() - start_time, "seconds")
@@ -176,8 +175,6 @@ class SEM:
         a[0].plot(-self.uv, self.y_t, 'x', label="$-\overline{u\'v\'}$")
 
         a[1].plot(self.L.flatten(), self.y_t, 'kx')
-
-        a[2].plot(self.U, self.y_t, 'kx')
 
         a[0].set_ylabel("$y/\delta$")
         a[0].set_xlabel("Reynolds Stress, $\overline{u_i\'u_j\'}$")
@@ -226,8 +223,7 @@ class SEM:
         plt.show()
 
 
-if __name__ == '__main__':
-
+def main_old():
     # Load data and interpolate onto a common grid
     Dat = np.genfromtxt('Ziefle2013_Re_stress.csv', delimiter=',', skip_header=2)
     ien = np.ones((np.size(Dat, 1, )), dtype=np.int) * np.size(Dat, 0)
@@ -260,7 +256,7 @@ if __name__ == '__main__':
     vv_in[y_in > 1.] = 0.005 * 22.
     ww_in[y_in > 1.] = 0.005 * 22.
 
-    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75, use_constant_L=None, Dens=100., fsh='triangular')
+    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75, Dens=100., fsh='quadratic')
 
     zgv_in = np.linspace(-.5, .5, 3)
     ygv_in = np.linspace(0.2, 0.5, 11)
@@ -275,5 +271,60 @@ if __name__ == '__main__':
 class BoundaryLayer(SEM):
     """Setup the SEM for a boundary layer flow."""
 
-    def __init__(self, del_99, Tu_inf, L_inf):
-        """Initialise with boundary layer thickness and main-stream information"""
+    def __init__(self, del_99, h, Tu_inf, cf, L_inf, Dens):
+        """Initialise with boundary layer thickness and main-stream information.
+
+        We take unit main-stream velocity, and an arbitrary length scale."""
+
+        # Read Reynolds stress data (uu_rms as fn of y/del_99)
+        with pkg_resources.open_text('tugen.data', 'Re_stress.json') as fid:
+            Re_stress = json.load(fid)
+
+        # Rescale the Reynolds stress data
+        # To get uu normalised by main-stream velocity, need
+        # (uu_rms/v_tau)^2 * (v_tau/v_inf)^2 = Data * cf/2
+        Re_stress_inf = {'uu': Tu_inf ** 2., 'vv': Tu_inf ** 2., 'ww': Tu_inf ** 2., 'uv': 0.}
+        for k in Re_stress:
+            ui = np.array(Re_stress[k])
+            ui[0, :] = ui[0, :] * del_99
+            ui[1, :] = ui[1, :] ** 2. * cf / 2.
+            ui = np.append(ui, np.array([[2. * ui[0, -1] - ui[0, -1]], [Re_stress_inf[k]]]), 1)
+            Re_stress[k] = ui
+
+        # Create wall-normal grid vector
+        A = 2.
+        zeta = np.linspace(0., 1., 41)
+        yg_bl = (1. + np.tanh(A * (zeta - 1.)) / np.tanh(A)) * del_99
+        yg_inf = np.array((yg_bl[-1] + np.diff(yg_bl, 1)[-1], 2. * L_inf, h))
+        yg = np.concatenate((yg_bl, yg_inf))
+
+        # Interpolate all points to same grid
+        Re_stress_g = {}
+        for k in Re_stress:
+            Re_stress_g[k] = np.interp(yg, Re_stress[k][0, :], Re_stress[k][1, :])
+
+        super().__init__(yg, np.ones_like(yg),
+                         Re_stress_g['uu'],
+                         Re_stress_g['vv'],
+                         Re_stress_g['ww'],
+                         -Re_stress_g['uv'],
+                         L_inf,
+                         del_99,
+                         Dens=Dens)
+
+        return
+
+
+if __name__ == '__main__':
+    BL = BoundaryLayer(0.5, 8., 0.005, 4.2e-3, 1., 100.)
+
+    zgv_in = np.linspace(-2., .2, 3)
+    ygv_in = np.linspace(0.1, 1.2, 6)
+
+    zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
+
+    BL.loop(yg_in, zg_in, .02, 3200)
+
+    BL.plot_output(yg_in)
+
+    # main_old()
