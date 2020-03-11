@@ -66,13 +66,12 @@ class SEM:
         print("Number of eddies: ", self.Nk)
 
         # Initialise eddies uniformly over box
-        self.xk = np.empty((1, 1, self.Nk, 3))
+        self.xk = np.empty((self.Nk, 3))
         for i in range(3):
-            self.xk[..., i] = np.random.uniform(bb[i, 0], bb[i, 1], (self.Nk,))
+            self.xk[:, i] = np.random.uniform(bb[i, 0], bb[i, 1], (self.Nk,))
 
         # Get length scales associated with each eddy
-        self.lk = np.interp(self.xk[..., 1], self.y, self.L)[..., None]
-        self.Uk = np.ones_like(self.xk[..., 1]) * self.U
+        self.lk = np.interp(self.xk[:, 1], self.y, self.L)[..., None]
 
         # Choose eddy orientations
         self.ek = np.random.choice((-1, 1), self.xk.shape)
@@ -95,7 +94,7 @@ class SEM:
         xg = np.stack((np.zeros_like(yg), yg, zg), 2)[:, :, None, :]
 
         # Get distances to all eddies
-        dxksq = ((xg - self.xk) / self.lk) ** 2.
+        dxksq = ((xg - self.xk[None, None, ...]) / self.lk[None, None, ...]) ** 2.
 
         # Get Reynolds stresses at grid points of interest
         Rg = self.fR(yg)
@@ -123,24 +122,25 @@ class SEM:
         """Move the eddies."""
 
         # Time step is normalised by dt_hat = dt * u_tau / delta
-        self.xk[..., 0] = self.xk[..., 0] + dt * self.Uk
+        self.xk[:, 0] = self.xk[:, 0] + dt * self.U
 
         # Check if any eddies have left the box
-        has_left = self.xk[..., 0] > self.box[0, 1]
+        has_left = self.xk[:, 0] > self.box[0, 1]
         Nk_new = np.sum(has_left)
-        xk_new = np.zeros((1, 1, Nk_new, 3))
-        for i in [1, 2]:
-            xk_new[..., i] = np.random.uniform(self.box[i, 0], self.box[i, 1], (Nk_new,))
-        xk_new[..., 0] = self.box[0, 0]
 
-        # Get length scales associated with each eddy
-        lk_new = np.interp(xk_new[..., 1], self.y, self.L)[..., None]
-        Uk_new = np.ones_like(xk_new[..., 1]) * self.U
+        # Get new positions for fresh eddies
+        xk_new = np.zeros((Nk_new, 3))
+        for i in [1, 2]:
+            xk_new[:, i] = np.random.uniform(self.box[i, 0], self.box[i, 1], (Nk_new,))
+        xk_new[:, 0] = self.box[0, 0]
+
+        # Get length scales and orientations for new eddies
+        lk_new = np.interp(xk_new[:, 1], self.y, self.L)[..., None]
         ek_new = np.random.choice((-1, 1), xk_new.shape)
 
+        # Insert into grid
         self.xk[has_left, :] = xk_new
-        self.Uk[0, 0, has_left.flatten()] = Uk_new
-        self.lk[0, 0, has_left.flatten()] = lk_new
+        self.lk[has_left, :] = lk_new
         self.ek[has_left, :] = ek_new
 
     def loop(self, yg, zg, dt, Nt):
