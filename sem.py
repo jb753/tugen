@@ -288,7 +288,9 @@ class BoundaryLayer(SEM):
             ui = np.array(Re_stress[k])
             ui[0, :] = ui[0, :] * del_99
             ui[1, :] = ui[1, :] ** 2. * cf / 2.
-            ui = np.append(ui, np.array([[2. * ui[0, -1] - ui[0, -1]], [Re_stress_inf[k]]]), 1)
+            ui[1, ui[0, :] > del_99] = Re_stress_inf[k]
+            ui[0, 0] = 0.
+            ui[1, 0] = 1e-9
             Re_stress[k] = ui
 
         # Create wall-normal grid vector
@@ -316,10 +318,10 @@ class BoundaryLayer(SEM):
 
 
 if __name__ == '__main__':
-    BL = BoundaryLayer(0.5, 8., 0.005, 4.2e-3, 1., 100.)
+    BL = BoundaryLayer(0.5, 8., 0.05, 4.2e-3, 1., 100.)
 
     zgv_in = np.linspace(-2., .2, 3)
-    ygv_in = np.linspace(0.1, 1.2, 6)
+    ygv_in = np.linspace(0.1, 2.2, 6)
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
 
