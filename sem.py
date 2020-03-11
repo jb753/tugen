@@ -319,10 +319,11 @@ class BoundaryLayer(SEM):
 
 
 if __name__ == '__main__':
-    BL = BoundaryLayer(0.5, 8., 0.05, 4.2e-3, 1., 100.)
 
-    zgv_in = np.linspace(-2., .2, 3)
-    ygv_in = np.linspace(0., 2.2, 6)
+    BL = BoundaryLayer(0.0025, .04, 0.05, 4.2e-3, 0.005, 1000.)
+
+    zgv_in = np.linspace(-0.1, .2, 2) * 0.005
+    ygv_in = np.linspace(0.001, .005, 11)
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
 
