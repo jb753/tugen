@@ -1,5 +1,6 @@
 import numpy as np
 import scipy.interpolate
+import scipy.integrate
 import matplotlib.pyplot as plt
 import math
 import time
@@ -38,6 +39,11 @@ class SEM:
             L = np.interp(y, [0., del_99, 2 * Linf], [0., del_99 * 0.41, Linf])
         self.L = L
 
+        # Determine the probability density in y dirn
+        K = 1. / np.trapz(1. / L, y)
+        self.py = K / L
+        self.cpy = np.insert(scipy.integrate.cumtrapz(self.py, y), 0, 0)
+
         # Assemble Reynolds stress tensor
         self.R = np.zeros((np.size(y), 3, 3))
         self.R[:, 0, 0] = self.uu
@@ -58,6 +64,9 @@ class SEM:
                        [-(side + Lmax) / 2, (side + Lmax) / 2]])
         self.box = bb
 
+        self.px = 1. / (bb[0, 1] - bb[0, 0])
+        self.pz = 1. / (bb[2, 1] - bb[2, 0])
+
         # Calculate number of eddies
         self.Vol = np.prod(np.diff(self.box, 1, 1))
         self.Nk = np.int(Dens * self.Vol / Lmax ** 3.)
@@ -67,14 +76,18 @@ class SEM:
 
         # Initialise eddies uniformly over box
         self.xk = np.empty((self.Nk, 3))
-        for i in range(3):
+        for i in [0, 2]:
             self.xk[:, i] = np.random.uniform(bb[i, 0], bb[i, 1], (self.Nk,))
+        self.xk[:, 1] = np.interp(np.random.rand(self.Nk), self.cpy, self.y)
 
         # Get length scales associated with each eddy
         self.lk = np.interp(self.xk[:, 1], self.y, self.L)[..., None]
 
         # Choose eddy orientations
         self.ek = np.random.choice((-1, 1), self.xk.shape)
+
+        # Save the eddy prokability density
+        self.pyk = np.interp(self.xk[:, 1], self.y, self.py)
 
         # Choose shape function normalisation factor
         # = (int from -1 to 1 of fsh**2) **2
@@ -110,7 +123,9 @@ class SEM:
         else:
             raise Exception('Invalid shape function')
 
-        fsig_ek = np.sum(np.prod(f, -1, keepdims=True) * np.sqrt(self.Vol / self.lk ** 3.) * self.ek, 2)
+        Pxyz = self.px * self.pyk * self.pz
+        fsig_ek = np.sum(
+            np.prod(f, -1, keepdims=True) * np.sqrt(1. / Pxyz[None, None, :, None] / self.lk ** 3.) * self.ek, 2)
 
         # Compute sum
         u = np.einsum('...ij,...j', ag, fsig_ek) / np.sqrt(self.Nk)
@@ -130,18 +145,20 @@ class SEM:
 
         # Get new positions for fresh eddies
         xk_new = np.zeros((Nk_new, 3))
-        for i in [1, 2]:
-            xk_new[:, i] = np.random.uniform(self.box[i, 0], self.box[i, 1], (Nk_new,))
-        xk_new[:, 0] = self.box[0, 0]
+        xk_new[:, 0] = self.box[0, 0]  # x at upstream side
+        xk_new[:, 1] = np.interp(np.random.rand(Nk_new), self.cpy, self.y)  # y with nonuniform dist
+        xk_new[:, 2] = np.random.uniform(self.box[2, 0], self.box[2, 1], (Nk_new,))  # z with uniform dist
 
         # Get length scales and orientations for new eddies
         lk_new = np.interp(xk_new[:, 1], self.y, self.L)[..., None]
         ek_new = np.random.choice((-1, 1), xk_new.shape)
+        pyk_new = np.interp(xk_new[:, 1], self.y, self.py)
 
         # Insert into grid
         self.xk[has_left, :] = xk_new
         self.lk[has_left, :] = lk_new
         self.ek[has_left, :] = ek_new
+        self.pyk[has_left] = pyk_new
 
     def loop(self, yg, zg, dt, Nt):
 
@@ -177,7 +194,10 @@ class SEM:
         a[0].set_ylabel("$y/\delta$")
         a[0].set_xlabel("Reynolds Stress, $\overline{u_i\'u_j\'}$")
         a[1].set_xlabel("Length Scale, $\ell/\delta$")
-        a[2].set_xlabel(r"Mean velocity, $U/U_{\tau}$")
+
+        a[2].plot(self.py, self.y)
+        a[2].plot(self.cpy, self.y)
+        a[2].set_xlabel(r"Probability Density, $p(y)$")
 
         a[0].legend()
         plt.tight_layout()
@@ -244,6 +264,8 @@ def main_old():
     ww_in[y_in > 1.] = 0.005 * 22.
 
     theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75, 1., Dens=100.)
+
+    theSEM.plot_input()
 
     zgv_in = np.linspace(-.5, .5, 3)
     ygv_in = np.linspace(0.2, 0.5, 11)
