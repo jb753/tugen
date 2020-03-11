@@ -6,6 +6,7 @@ import math
 import time
 import json
 import importlib.resources as pkg_resources
+import multiprocessing
 
 
 class SEM:
@@ -38,11 +39,12 @@ class SEM:
         else:
             L = np.interp(y, [0., del_99, 2 * Linf], [1e-10, del_99 * 0.41, Linf])
         self.L = L
+        Lmax = np.max(self.L)
 
         # Determine the probability density in y dirn
         # Proportional to reciprocal of L but clip to avoid huge values near wall
-        Lclip = 0.1 * del_99
-        py_raw = np.where(y > Lclip, 1. / L, 1. / (0.41 * Lclip))
+        Lclip = Lmax / 5.
+        py_raw = np.where(L > Lclip, 1. / L, 1. / Lclip)
         K = 1. / np.trapz(py_raw, y)
         self.py = K * py_raw
         self.cpy = np.insert(scipy.integrate.cumtrapz(self.py, y), 0, 0)
@@ -60,7 +62,6 @@ class SEM:
 
         # Set bounding box
         # Square centered around z=0, from 0 to ymax, at x=0, with Lmax space around it
-        Lmax = np.max(self.L)
         side = np.max(self.y)
         bb = np.array([[-Lmax, Lmax],
                        [0, side + Lmax],
@@ -103,7 +104,7 @@ class SEM:
         self.fac_norm = 1. / np.sqrt(self.fac_norm)
         self.fsh = fsh
 
-    def evaluate(self, yg, zg):
+    def evaluate(self, yg, zg, Pl=None):
         """Evaluate fluctuating velocity field associated with the current eddies."""
 
         # Assemble input grid vector
@@ -127,8 +128,23 @@ class SEM:
             raise Exception('Invalid shape function')
 
         Pxyz = self.px * self.pyk * self.pz
-        fsig_ek = np.sum(
-            np.prod(f, -1, keepdims=True) * np.sqrt(1. / Pxyz[None, None, :, None] / self.lk ** 3.) * self.ek, 2)
+
+        if Pl is not None:
+            Nw = Pl._processes
+            Nkw = np.int(np.floor(self.Nk / Nw))
+            kst = [iw * Nkw for iw in range(Nw)]
+            ken = [(iw + 1) * Nkw + 1 for iw in range(Nw)]
+            ken[Nw - 1] = self.Nk
+            wk = [(f[:, :, kst[i]:ken[i], :],
+                   np.sqrt(1. / Pxyz[None, None, kst[i]:ken[i], None] / self.lk[kst[i]:ken[i], :] ** 3.) * self.ek[
+                                                                                                           kst[i]:ken[
+                                                                                                               i], :])
+                  for i in range(Nw)]
+            fsig_ek = sum(Pl.map(worker_sum, wk))
+
+        else:
+            fsig_ek = np.sum(
+                np.prod(f, -1, keepdims=True) * np.sqrt(1. / Pxyz[None, None, :, None] / self.lk ** 3.) * self.ek, 2)
 
         # Compute sum
         u = np.einsum('...ij,...j', ag, fsig_ek) / np.sqrt(self.Nk)
@@ -163,7 +179,7 @@ class SEM:
         self.ek[has_left, :] = ek_new
         self.pyk[has_left] = pyk_new
 
-    def loop(self, yg, zg, dt, Nt):
+    def loop(self, yg, zg, dt, Nt, Pl=None):
 
         start_time = time.perf_counter()
 
@@ -176,7 +192,7 @@ class SEM:
             if not np.mod(i, 50):
                 print('\r', end="")
                 print('Time step %d/%d' % (i, Nt), end="")
-            u[..., i] = self.evaluate(yg, zg)
+            u[..., i] = self.evaluate(yg, zg, Pl)
             self.convect(dt)
 
         print('\nElapsed time:', time.perf_counter() - start_time, "seconds")
@@ -222,10 +238,10 @@ class SEM:
 
         a[0].set_prop_cycle(None)
 
-        a[0].plot(uu, yg[:, 0], '-')
-        a[0].plot(vv, yg[:, 0], '-')
-        a[0].plot(ww, yg[:, 0], '-')
-        a[0].plot(-uv, yg[:, 0], '-')
+        a[0].plot(uu, yg[:, 0], 'o')
+        a[0].plot(vv, yg[:, 0], 'o')
+        a[0].plot(ww, yg[:, 0], 'o')
+        a[0].plot(-uv, yg[:, 0], 'o')
 
         # a[1].plot(uu / self.uu, self.y_t, '-')
         # a[1].plot(vv / self.vv, self.y_t, '-')
@@ -266,16 +282,17 @@ def main_old():
     vv_in[y_in > 1.] = 0.005 * 22.
     ww_in[y_in > 1.] = 0.005 * 22.
 
-    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75, 1., Dens=1000.)
+    theSEM = SEM(y_in, uu_in, vv_in, ww_in, -uv_in, .75, 1., Dens=10000.)
 
     theSEM.plot_input()
 
     zgv_in = np.linspace(-.5, .5, 2)
-    ygv_in = np.linspace(0.01, 0.4, 21)
+    ygv_in = np.linspace(0.01, 0.4, 7)
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
 
-    print(theSEM.loop(yg_in, zg_in, .001, 1000))
+    Pl = multiprocessing.Pool(7)
+    print(theSEM.loop(yg_in, zg_in, .01, 500, Pl))
     print(theSEM.Nk)
     theSEM.plot_output(yg_in)
 
@@ -330,13 +347,21 @@ class BoundaryLayer(SEM):
         return
 
 
+def worker_sum(x):
+    return np.sum(np.prod(x[0], -1, keepdims=True) * x[1], 2)
+
+
 if __name__ == '__main__':
-    BL = BoundaryLayer(0.0025, .04, 0.005, 4.2e-3, 0.005, 100.)
+    main_old()
+    quit()
+
+    BL = BoundaryLayer(0.0025, .01, 0.005, 4.2e-3, 0.005, 100.)
 
     BL.plot_input()
 
     zgv_in = np.linspace(-0.1, .2, 2) * 0.005
-    ygv_in = np.linspace(0.0001, .002, 11)
+    # ygv_in = np.linspace(0.0001, .001, 3)
+    ygv_in = BL.y
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
 
