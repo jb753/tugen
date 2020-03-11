@@ -363,8 +363,8 @@ if __name__ == '__main__':
 
     BL.plot_input()
     zgv_in = np.linspace(-0.1, .2, 2) * 0.005
-    ygv_in = np.linspace(0.0001, .001, 3)
-    ygv_in = BL.y
+    ygv_in = np.linspace(0.0001, .0005, 3)
+    #ygv_in = BL.y
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
 
