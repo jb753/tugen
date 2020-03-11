@@ -38,15 +38,14 @@ class SEM:
             L = np.interp(y, [0., 1., 2.], [0., 0.41, 0.41])
         else:
             L = np.interp(y, [0., del_99, 2 * Linf], [1e-10, del_99 * 0.41, Linf])
-        self.L = L
+        Lclip = 0.05 * del_99
+        self.L = np.where(L > Lclip, L, Lclip)
         Lmax = np.max(self.L)
 
         # Determine the probability density in y dirn
         # Proportional to reciprocal of L but clip to avoid huge values near wall
-        Lclip = Lmax / 5.
-        py_raw = np.where(L > Lclip, 1. / L, 1. / Lclip)
-        K = 1. / np.trapz(py_raw, y)
-        self.py = K * py_raw
+        py_raw = 1. / self.L
+        self.py = py_raw / np.trapz(py_raw, y)
         self.cpy = np.insert(scipy.integrate.cumtrapz(self.py, y), 0, 0)
 
         # Assemble Reynolds stress tensor
@@ -65,7 +64,7 @@ class SEM:
         side = np.max(self.y)
         bb = np.array([[-Lmax, Lmax],
                        [0, side + Lmax],
-                       [-(side + Lmax) / 2, (side + Lmax) / 2]])
+                       [-(side / 2 + Lmax) / 2, (side / 2 + Lmax) / 2]])
         self.box = bb
 
         self.px = 1. / (bb[0, 1] - bb[0, 0])
@@ -92,6 +91,9 @@ class SEM:
 
         # Save the eddy prokability density
         self.pyk = np.interp(self.xk[:, 1], self.y, self.py)
+
+        # Evaluate total scaling factor for each eddy
+        self.sfk = np.sqrt(1. / self.pyk[None, None, :, None] / self.px / self.pz / self.lk ** 3.) * self.ek
 
         # Choose shape function normalisation factor
         # = (int from -1 to 1 of fsh**2) **2
@@ -143,8 +145,7 @@ class SEM:
             fsig_ek = sum(Pl.map(worker_sum, wk))
 
         else:
-            fsig_ek = np.sum(
-                np.prod(f, -1, keepdims=True) * np.sqrt(1. / Pxyz[None, None, :, None] / self.lk ** 3.) * self.ek, 2)
+            fsig_ek = np.sum(np.prod(f, -1, keepdims=True) * self.sfk, 2)
 
         # Compute sum
         u = np.einsum('...ij,...j', ag, fsig_ek) / np.sqrt(self.Nk)
@@ -178,6 +179,9 @@ class SEM:
         self.lk[has_left, :] = lk_new
         self.ek[has_left, :] = ek_new
         self.pyk[has_left] = pyk_new
+
+        self.sfk[:, :, has_left, :] = np.sqrt(
+            1. / pyk_new[None, None, :, None] / self.px / self.pz / lk_new ** 3.) * ek_new
 
     def loop(self, yg, zg, dt, Nt, Pl=None):
 
@@ -282,7 +286,7 @@ def main_old():
     vv_in[y_in > 1.] = 0.005 * 22.
     ww_in[y_in > 1.] = 0.005 * 22.
 
-    theSEM = SEM(y_in, uu_in, vv_in, ww_in, -uv_in, .75, 1., Dens=10000.)
+    theSEM = SEM(y_in, uu_in, vv_in, ww_in, -uv_in, .75, 1., Dens=1000.)
 
     theSEM.plot_input()
 
@@ -292,7 +296,7 @@ def main_old():
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
 
     Pl = multiprocessing.Pool(7)
-    print(theSEM.loop(yg_in, zg_in, .01, 500, Pl))
+    print(theSEM.loop(yg_in, zg_in, .01, 500))
     print(theSEM.Nk)
     theSEM.plot_output(yg_in)
 
@@ -352,15 +356,14 @@ def worker_sum(x):
 
 
 if __name__ == '__main__':
-    main_old()
-    quit()
+    # main_old()
+    # quit()
 
-    BL = BoundaryLayer(0.0025, .01, 0.005, 4.2e-3, 0.005, 100.)
+    BL = BoundaryLayer(0.0025, .04, 0.005, 4.2e-3, 0.005, 100.)
 
     BL.plot_input()
-
     zgv_in = np.linspace(-0.1, .2, 2) * 0.005
-    # ygv_in = np.linspace(0.0001, .001, 3)
+    ygv_in = np.linspace(0.0001, .001, 3)
     ygv_in = BL.y
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
