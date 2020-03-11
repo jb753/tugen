@@ -250,7 +250,7 @@ def main_old():
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
 
-    print(theSEM.loop(yg_in, zg_in, .001, 1000))
+    print(theSEM.loop(yg_in, zg_in, .001, 10000))
     print(theSEM.Nk)
     theSEM.plot_output(yg_in)
 
