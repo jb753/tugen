@@ -23,7 +23,7 @@ class SEM:
             uv = np.zeros_like(y)
 
         # Assign attributes
-        self.y_t = y
+        self.y = y
         self.uu = uu
         self.vv = vv
         self.ww = ww
@@ -36,7 +36,7 @@ class SEM:
             L = np.interp(y, [0., 1., 2.], [0., 0.41, 0.41])
         else:
             L = np.interp(y, [0., del_99, 2 * Linf], [0., del_99 * 0.41, Linf])
-        self.L = L[:, None, None, None]
+        self.L = L
 
         # Assemble Reynolds stress tensor
         self.R = np.zeros((np.size(y), 3, 3))
@@ -52,7 +52,7 @@ class SEM:
         # Set bounding box
         # Square centered around z=0, from 0 to ymax, at x=0, with Lmax space around it
         Lmax = np.max(self.L)
-        side = np.max(self.y_t)
+        side = np.max(self.y)
         bb = np.array([[-Lmax, Lmax],
                        [0, side + Lmax],
                        [-(side + Lmax) / 2, (side + Lmax) / 2]])
@@ -71,7 +71,7 @@ class SEM:
             self.xk[..., i] = np.random.uniform(bb[i, 0], bb[i, 1], (self.Nk,))
 
         # Get length scales associated with each eddy
-        self.lk = np.interp(self.xk[..., 1], self.y_t.flatten(), self.L.flatten())[..., None]
+        self.lk = np.interp(self.xk[..., 1], self.y, self.L)[..., None]
         self.Uk = np.ones_like(self.xk[..., 1]) * self.U
 
         # Choose eddy orientations
@@ -99,25 +99,23 @@ class SEM:
 
         # Get Reynolds stresses at grid points of interest
         Rg = self.fR(yg)
-        ag = np.linalg.cholesky(Rg)[:, :, None, ...]
+        ag = np.linalg.cholesky(Rg)
 
         # Evaluate components shape function
         if self.fsh == 'gaussian':
-            f = np.where(dxksq < 1., np.exp(-np.pi * dxksq), 0.)
+            f = np.where(dxksq < 1., np.exp(-np.pi * dxksq), 0.) * self.fac_norm
         elif self.fsh == 'quadratic':
-            f = np.where(dxksq < 1., 1. - dxksq, 0.)
+            f = np.where(dxksq < 1., 1. - dxksq, 0.) * self.fac_norm
         elif self.fsh == 'triangular':
-            f = np.where(dxksq < 1., 1. - np.sqrt(dxksq), 0.)
+            f = np.where(dxksq < 1., 1. - np.sqrt(dxksq), 0.) * self.fac_norm
         else:
             raise Exception('Invalid shape function')
 
-        # Normalise
-        f = f * self.fac_norm
-
-        fsig = np.prod(f, -1, keepdims=True) * np.sqrt(self.Vol / self.lk ** 3.)
+        fsig_ek = np.sum(np.prod(f, -1, keepdims=True) * np.sqrt(self.Vol / self.lk ** 3.) * self.ek, 2)
 
         # Compute sum
-        u = np.einsum('...kij,...kj,...kl->...i', ag, self.ek, fsig) / np.sqrt(self.Nk)
+        u = np.einsum('...ij,...j', ag, fsig_ek) / np.sqrt(self.Nk)
+        u = np.squeeze(u)
 
         return u
 
@@ -136,7 +134,7 @@ class SEM:
         xk_new[..., 0] = self.box[0, 0]
 
         # Get length scales associated with each eddy
-        lk_new = np.interp(xk_new[..., 1], self.y_t.flatten(), self.L.flatten())[..., None]
+        lk_new = np.interp(xk_new[..., 1], self.y, self.L)[..., None]
         Uk_new = np.ones_like(xk_new[..., 1]) * self.U
         ek_new = np.random.choice((-1, 1), xk_new.shape)
 
@@ -169,12 +167,12 @@ class SEM:
     def plot_input(self):
 
         f, a = plt.subplots(1, 3, sharey=True)
-        a[0].plot(self.uu, self.y_t, 'x', label="$\overline{u\'u\'}$")
-        a[0].plot(self.vv, self.y_t, 'x', label="$\overline{v\'v\'}$")
-        a[0].plot(self.ww, self.y_t, 'x', label="$\overline{w\'w\'}$")
-        a[0].plot(-self.uv, self.y_t, 'x', label="$-\overline{u\'v\'}$")
+        a[0].plot(self.uu, self.y, 'x', label="$\overline{u\'u\'}$")
+        a[0].plot(self.vv, self.y, 'x', label="$\overline{v\'v\'}$")
+        a[0].plot(self.ww, self.y, 'x', label="$\overline{w\'w\'}$")
+        a[0].plot(-self.uv, self.y, 'x', label="$-\overline{u\'v\'}$")
 
-        a[1].plot(self.L.flatten(), self.y_t, 'kx')
+        a[1].plot(self.L.flatten(), self.y, 'kx')
 
         a[0].set_ylabel("$y/\delta$")
         a[0].set_xlabel("Reynolds Stress, $\overline{u_i\'u_j\'}$")
@@ -188,10 +186,10 @@ class SEM:
     def plot_output(self, yg):
 
         f, a = plt.subplots(1, 3)
-        a[0].plot(self.uu, self.y_t, 'x', label="$\overline{u\'u\'}$")
-        a[0].plot(self.vv, self.y_t, 'x', label="$\overline{v\'v\'}$")
-        a[0].plot(self.ww, self.y_t, 'x', label="$\overline{w\'w\'}$")
-        a[0].plot(-self.uv, self.y_t, 'x', label="-$\overline{u\'v\'}$")
+        a[0].plot(self.uu, self.y, 'x', label="$\overline{u\'u\'}$")
+        a[0].plot(self.vv, self.y, 'x', label="$\overline{v\'v\'}$")
+        a[0].plot(self.ww, self.y, 'x', label="$\overline{w\'w\'}$")
+        a[0].plot(-self.uv, self.y, 'x', label="-$\overline{u\'v\'}$")
 
         # Calculate stats
         uu = np.mean(self.u[..., 0, :] ** 2., (-2, -1))
@@ -225,45 +223,34 @@ class SEM:
 
 def main_old():
     # Load data and interpolate onto a common grid
-    Dat = np.genfromtxt('Ziefle2013_Re_stress.csv', delimiter=',', skip_header=2)
-    ien = np.ones((np.size(Dat, 1, )), dtype=np.int) * np.size(Dat, 0)
-    for n in range(np.size(Dat, 1)):
-        for m in range(np.size(Dat, 0)):
-            if np.isnan(Dat[m, n]):
-                Dat[m:, n] = Dat[m - 1, n]
-                ien[n] = m
-                break
+    with pkg_resources.open_text('tugen.data', 'Re_stress.json') as fid:
+        Dat = json.load(fid)
 
-    # Reformat the input data into a dict, save as json
-    d = {'uu': Dat[:ien[0], 0:2].T.tolist(),
-         'vv': Dat[:ien[2], 2:4].T.tolist(),
-         'ww': Dat[:ien[4], 4:6].T.tolist(),
-         'uv': Dat[:ien[6], 6:8].T.tolist()}
-    with open('Re_stress.json', 'w') as fp:
-        json.dump(d, fp, indent=4)
+    for k in Dat:
+        Dat[k] = np.array(Dat[k])
 
     y_in = np.arctanh(np.linspace(0.005, .95, 17))
     y_in = y_in / np.max(y_in) * 1.0
     U_in = np.where(y_in < 1., y_in ** (1. / 7.), 1.0) * 22.
 
-    uu_in = np.interp(y_in, Dat[:, 0], Dat[:, 1])
-    vv_in = np.interp(y_in, Dat[:, 2], Dat[:, 3])
-    ww_in = np.interp(y_in, Dat[:, 4], Dat[:, 5])
-    uv_in = np.interp(y_in, Dat[:, 6], Dat[:, 7])
+    uu_in = np.interp(y_in, Dat['uu'][0, :], Dat['uu'][1, :])
+    vv_in = np.interp(y_in, Dat['vv'][0, :], Dat['vv'][1, :])
+    ww_in = np.interp(y_in, Dat['ww'][0, :], Dat['ww'][1, :])
+    uv_in = np.interp(y_in, Dat['uv'][0, :], Dat['uv'][1, :])
 
     uv_in[y_in > 1.] = 0.0
     uu_in[y_in > 1.] = 0.005 * 22.
     vv_in[y_in > 1.] = 0.005 * 22.
     ww_in[y_in > 1.] = 0.005 * 22.
 
-    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75, Dens=100., fsh='quadratic')
+    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75, 1., Dens=100.)
 
     zgv_in = np.linspace(-.5, .5, 3)
     ygv_in = np.linspace(0.2, 0.5, 11)
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
 
-    print(theSEM.loop(yg_in, zg_in, .001, 10000))
+    print(theSEM.loop(yg_in, zg_in, .001, 1000))
     print(theSEM.Nk)
     theSEM.plot_output(yg_in)
 
@@ -319,16 +306,15 @@ class BoundaryLayer(SEM):
 
 
 if __name__ == '__main__':
+    # BL = BoundaryLayer(0.0025, .04, 0.05, 4.2e-3, 0.005, 1000.)
+    #
+    # zgv_in = np.linspace(-0.1, .2, 2) * 0.005
+    # ygv_in = np.linspace(0.001, .005, 11)
+    #
+    # zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
+    #
+    # BL.loop(yg_in, zg_in, .02, 3200)
+    #
+    # BL.plot_output(yg_in)
 
-    BL = BoundaryLayer(0.0025, .04, 0.05, 4.2e-3, 0.005, 1000.)
-
-    zgv_in = np.linspace(-0.1, .2, 2) * 0.005
-    ygv_in = np.linspace(0.001, .005, 11)
-
-    zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
-
-    BL.loop(yg_in, zg_in, .02, 3200)
-
-    BL.plot_output(yg_in)
-
-    # main_old()
+    main_old()
