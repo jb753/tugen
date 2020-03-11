@@ -10,7 +10,7 @@ import importlib.resources as pkg_resources
 
 class SEM:
 
-    def __init__(self, y, U, uu, vv=None, ww=None, uv=None, Linf=None, del_99=None, Dens=100., fsh='quadratic'):
+    def __init__(self, y, uu, vv=None, ww=None, uv=None, Linf=None, del_99=None, Dens=100., fsh='quadratic'):
         """Initialise with target Reynolds stress profile.
 
         We normalise velocity with friction velocity, length with BL thickness."""
@@ -29,19 +29,22 @@ class SEM:
         self.vv = vv
         self.ww = ww
         self.uv = uv
-        self.U = np.trapz(U, y) / np.trapz(np.ones_like(y), y)
+        self.U = 1.
 
         # Blend to the free-stream length scale
         # Assume y is normalised on BL thickness
         if Linf is None:
             L = np.interp(y, [0., 1., 2.], [0., 0.41, 0.41])
         else:
-            L = np.interp(y, [0., del_99, 2 * Linf], [0., del_99 * 0.41, Linf])
+            L = np.interp(y, [0., del_99, 2 * Linf], [1e-10, del_99 * 0.41, Linf])
         self.L = L
 
         # Determine the probability density in y dirn
-        K = 1. / np.trapz(1. / L, y)
-        self.py = K / L
+        # Proportional to reciprocal of L but clip to avoid huge values near wall
+        Lclip = 0.1 * del_99
+        py_raw = np.where(y > Lclip, 1. / L, 1. / (0.41 * Lclip))
+        K = 1. / np.trapz(py_raw, y)
+        self.py = K * py_raw
         self.cpy = np.insert(scipy.integrate.cumtrapz(self.py, y), 0, 0)
 
         # Assemble Reynolds stress tensor
@@ -263,16 +266,16 @@ def main_old():
     vv_in[y_in > 1.] = 0.005 * 22.
     ww_in[y_in > 1.] = 0.005 * 22.
 
-    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75, 1., Dens=100.)
+    theSEM = SEM(y_in, U_in, uu_in, vv_in, ww_in, -uv_in, .75, 1., Dens=1000.)
 
     theSEM.plot_input()
 
-    zgv_in = np.linspace(-.5, .5, 3)
-    ygv_in = np.linspace(0.2, 0.5, 11)
+    zgv_in = np.linspace(-.5, .5, 2)
+    ygv_in = np.linspace(0.01, 0.4, 21)
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
 
-    print(theSEM.loop(yg_in, zg_in, .001, 10000))
+    print(theSEM.loop(yg_in, zg_in, .001, 1000))
     print(theSEM.Nk)
     theSEM.plot_output(yg_in)
 
@@ -298,7 +301,7 @@ class BoundaryLayer(SEM):
             ui = np.array(Re_stress[k])
             ui[0, :] = ui[0, :] * del_99
             ui[1, :] = ui[1, :] ** 2. * cf / 2.
-            ui[1, ui[0, :] > del_99] = Re_stress_inf[k]
+            ui[1, np.logical_and(ui[1, :] < Re_stress_inf[k], ui[0, :] > del_99 * 0.2)] = Re_stress_inf[k]
             ui[0, 0] = 0.
             ui[1, 0] = Re_stress_min[k]
             Re_stress[k] = ui
@@ -315,7 +318,7 @@ class BoundaryLayer(SEM):
         for k in Re_stress:
             Re_stress_g[k] = np.interp(yg, Re_stress[k][0, :], Re_stress[k][1, :])
 
-        super().__init__(yg, np.ones_like(yg),
+        super().__init__(yg,
                          Re_stress_g['uu'],
                          Re_stress_g['vv'],
                          Re_stress_g['ww'],
@@ -328,15 +331,15 @@ class BoundaryLayer(SEM):
 
 
 if __name__ == '__main__':
-    # BL = BoundaryLayer(0.0025, .04, 0.05, 4.2e-3, 0.005, 1000.)
-    #
-    # zgv_in = np.linspace(-0.1, .2, 2) * 0.005
-    # ygv_in = np.linspace(0.001, .005, 11)
-    #
-    # zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
-    #
-    # BL.loop(yg_in, zg_in, .02, 3200)
-    #
-    # BL.plot_output(yg_in)
+    BL = BoundaryLayer(0.0025, .04, 0.005, 4.2e-3, 0.005, 100.)
 
-    main_old()
+    BL.plot_input()
+
+    zgv_in = np.linspace(-0.1, .2, 2) * 0.005
+    ygv_in = np.linspace(0.0001, .002, 11)
+
+    zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
+
+    BL.loop(yg_in, zg_in, .02 * .005, 3200)
+
+    BL.plot_output(yg_in)
