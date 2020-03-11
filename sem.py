@@ -284,13 +284,14 @@ class BoundaryLayer(SEM):
         # To get uu normalised by main-stream velocity, need
         # (uu_rms/v_tau)^2 * (v_tau/v_inf)^2 = Data * cf/2
         Re_stress_inf = {'uu': Tu_inf ** 2., 'vv': Tu_inf ** 2., 'ww': Tu_inf ** 2., 'uv': 0.}
+        Re_stress_min = {'uu': 1e-9, 'vv': 1e-9, 'ww': 1e-9, 'uv': 0.}
         for k in Re_stress:
             ui = np.array(Re_stress[k])
             ui[0, :] = ui[0, :] * del_99
             ui[1, :] = ui[1, :] ** 2. * cf / 2.
             ui[1, ui[0, :] > del_99] = Re_stress_inf[k]
             ui[0, 0] = 0.
-            ui[1, 0] = 1e-9
+            ui[1, 0] = Re_stress_min[k]
             Re_stress[k] = ui
 
         # Create wall-normal grid vector
@@ -321,7 +322,7 @@ if __name__ == '__main__':
     BL = BoundaryLayer(0.5, 8., 0.05, 4.2e-3, 1., 100.)
 
     zgv_in = np.linspace(-2., .2, 3)
-    ygv_in = np.linspace(0.1, 2.2, 6)
+    ygv_in = np.linspace(0., 2.2, 6)
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
 
