@@ -38,7 +38,7 @@ class SEM:
             L = np.interp(y, [0., 1., 2.], [0., 0.41, 0.41])
         else:
             L = np.interp(y, [0., del_99, 2 * Linf], [1e-10, del_99 * 0.41, Linf])
-        Lclip = 0.05 * del_99
+        Lclip = 0.2 * del_99
         self.L = np.where(L > Lclip, L, Lclip)
         Lmax = np.max(self.L)
 
@@ -252,7 +252,7 @@ class SEM:
         # a[1].plot(ww / self.ww, self.y_t, '-')
         # a[1].plot(uv / self.uv, self.y_t, '-')
 
-        a[2].plot(self.u[1, 1, 0, :].flatten())
+        a[2].plot(self.u[1, 1, 0, :].flatten(), '.-')
 
         a[0].set_ylabel("$y/\delta$")
         a[0].set_xlabel("Reynolds Stress, $\overline{u_i\'u_j\'}$")
@@ -359,11 +359,11 @@ if __name__ == '__main__':
     # main_old()
     # quit()
 
-    BL = BoundaryLayer(0.0025, .04, 0.005, 4.2e-3, 0.005, 100.)
+    BL = BoundaryLayer(0.0025, .04, 0.005, 4.2e-3, 0.005, 50.)
 
     BL.plot_input()
     zgv_in = np.linspace(-0.1, .2, 2) * 0.005
-    ygv_in = np.linspace(0.0001, .0005, 3)
+    ygv_in = np.linspace(0.0001, .003, 17)
     #ygv_in = BL.y
 
     zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
