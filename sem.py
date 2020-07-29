@@ -13,6 +13,7 @@ gaussian_norm = 1. / np.sqrt( math.erf(np.sqrt(np.pi * 2.)) / np.sqrt(2.) )
 def gaussian_shape(dxsq):
     return gaussian_norm * np.exp(-np.pi * dxsq)
 
+quadratic_Cf = 4./3.
 quadratic_norm = 1. / np.sqrt(16. / 15.)
 def quadratic_shape(dxsq):
     return quadratic_norm * (1. - dxsq)
@@ -25,6 +26,8 @@ class AnisoSEM:
     """Generate correlated velocity fluctuations using the synthetic eddies."""
 
     def __init__(self, y, z, uu, vv, ww, uv, L, Dens=100., fsh='quadratic'):
+        """Initialise using target Reynolds stresses and length scales."""
+
         # Store input data
         self.y = y
         self.L = L
@@ -54,7 +57,7 @@ class AnisoSEM:
 
         # Extend length scale distribution outside of box
         self.y_ext = np.concatenate(([bb[1,0]], y, [bb[1,1]]))
-        self.L_ext = np.concatenate(([L[0]], L, [L[-1]]))
+        self.L_ext = np.concatenate(([L[0]], L, [L[-1]])) * quadratic_Cf
 
         # Determine the eddy probability density in y dirn
         # Proportional to reciprocal of L 
@@ -78,13 +81,13 @@ class AnisoSEM:
         self.xk[:, 1] = np.interp(np.random.rand(self.Nk), self.cpy, self.y_ext)
 
         # Get length scales associated with each eddy
-        self.lk = np.interp(self.xk[:, 1], self.y, self.L)[..., None]
+        self.lk = np.interp(self.xk[:, 1], self.y_ext, self.L_ext)[..., None]
 
         # Choose eddy orientations
         self.ek = np.random.choice((-1, 1), self.xk.shape)
 
         # Evaluate total scaling factor for each eddy
-        pyk = np.interp(self.xk[:, 1], self.y_ext, self.py) 
+        pyk = np.interp(self.xk[:, 1], self.y_ext, self.py)
         self.sfk = np.sqrt(1. / pyk[None, None, :, None]
                 / self.px / self.pz / self.lk ** 3.) * self.ek
 
@@ -236,6 +239,33 @@ class AnisoSEM:
         a[0].plot(vv, yg, 'o')
         a[0].plot(ww, yg, 'o')
         a[0].plot(-uv, yg, 'o')
+
+        # ux = self.u[0,0,0,:]
+        # Nt = len(ux)
+        # Rxx = (np.correlate(ux,ux,mode='full')/np.mean(ux**2.)/Nt)[Nt-1:]
+        # a[1].plot(Rxx,'-x')
+        # a[1].set_xlim([0.,50.])
+
+        # Lam = np.trapz(Rxx)
+        # print(Lam)
+
+        ux = self.u[:,:,0,:]
+        shu = np.shape(ux)
+        Nt = shu[2]
+        Ny = shu[0]
+        Nz = shu[1]
+        print(shu)
+
+        Lam = np.empty((Ny,Nz))
+        for i in range(Ny):
+            for j in range(Nz):
+                uxnow = ux[i,j,:]
+                Rxxnow = (np.correlate(
+                        uxnow,uxnow,mode='full')/np.mean(uxnow**2.)/Nt)[Nt-1:]
+                Lam[i,j] = np.trapz(Rxxnow[:100])
+
+        a[1].plot(np.mean(Lam,1),yg,'-x')
+        a[1].set_xlim([0.,20.])
 
         plt.tight_layout()
         plt.show()
