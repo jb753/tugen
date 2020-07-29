@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import math
 import time
 import json
+import numexpr
 
 
 # Eddy shape functions
@@ -108,18 +109,35 @@ class AnisoSEM:
         """Evaluate fluctuating velocity associated with current eddies."""
 
         # Get distances to all eddies
-        dxksq = ((self.xg - self.xk[None, None, ...])
-                / self.lk[None, None, ...]) ** 2.
+        xg = self.xg
+        xk = self.xk[None, None, ...]
+        lk = self.lk[None, None, ...]
+        dxksq = numexpr.evaluate('((xg-xk)/lk)**2.0')
 
-        # Evaluate shape function
-        f = np.where(dxksq < 1., self.shape(dxksq), 0.)
+        # dxksq = ((self.xg - self.xk[None, None, ...])
+        #         / self.lk[None, None, ...]) ** 2.
+
+        # # Evaluate shape function
+        # f = np.where(dxksq < 1., self.shape(dxksq), 0.)
+
+        f = numexpr.evaluate('prod(where(dxksq < 1.0, quadratic_norm * (1.0 - dxksq) , 0.0),3)')[...,None]
 
         # Normalise shape function
-        fsig_ek = np.sum(np.prod(f, -1, keepdims=True) * self.sfk, 2)
+        sfk = self.sfk
+        fsig_ek = numexpr.evaluate('sum(f * sfk, 2)')
 
-        # Compute sum
-        u = np.einsum('...ij,...j', self.ag, fsig_ek) / np.sqrt(self.Nk)
-        u = np.squeeze(u)
+        # print(np.shape(self.ag))
+
+        # # Compute sum
+        # u = np.empty((np.shape(xg)[0],np.shape(xg)[1],3))
+        # for i in range(3):
+        #     ag = self.ag[...,i,:]
+        #     u[...,i] = numexpr.evaluate('sum(ag*fsig_ek,2)')
+        # u = u / np.sqrt(self.Nk)
+
+        u = np.squeeze(
+                np.einsum('...ij,...j', self.ag, fsig_ek)
+                ) / np.sqrt(self.Nk)
 
         return u
 

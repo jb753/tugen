@@ -1,8 +1,9 @@
 import numpy as np
 import sem
+import cProfile
 
-yv = np.linspace(0.,1.,5)
-zv = np.linspace(0.,1.,5)
+yv = np.linspace(0.,1.,13)
+zv = np.linspace(0.,1.,13)
 Tu = 0.1 * np.ones_like(yv)
 uv = np.zeros_like(yv)
 L = np.ones_like(yv)*0.1
@@ -21,7 +22,8 @@ dt = L[0]/nstep_cycle
 tau = L[0]*ncycle
 nt = int(tau/dt)
 
-theSEM.loop(dt, nt)
+#theSEM.loop(dt, nt)
+cProfile.run("theSEM.loop(dt, nt)",sort="cumtime")
 
 theSEM.plot_output(yv)
 
