@@ -25,6 +25,10 @@ class AnisoSEM:
         self.y = y
         self.L = L
 
+        # Empty output grid list
+        self.ag = []
+        self.xg = []
+
         # Assemble Reynolds stress tensor
         self.R = np.zeros((np.size(y), 3, 3))
         self.R[:, 0, 0] = uu
@@ -84,20 +88,20 @@ class AnisoSEM:
         self.sfk = np.sqrt(1. / pyk[None, None, :, None]
                 / self.px / self.pz / self.lk ** 3.) * self.ek
 
-    def set_grid(self, yg, zg):
+    def add_grid(self, yg, zg):
         """Prepare to evaluate eddies over a particular grid."""
 
         # Assemble input grid vector
-        self.xg = np.stack((np.zeros_like(yg), yg, zg), 2)[:, :, None, :]
+        self.xg.append(np.stack((np.zeros_like(yg), yg, zg), 2)[:, :, None, :])
 
         # Get Reynolds stresses at grid points of interest
-        self.ag = np.linalg.cholesky( self.fR(yg) )
+        self.ag.append(np.linalg.cholesky( self.fR(yg) ))
 
-    def evaluate(self, nproc=None):
+    def evaluate(self, grid_index, nproc=None):
         """Evaluate fluctuating velocity associated with current eddies."""
 
         # Get distances to all eddies
-        xg = self.xg
+        xg = self.xg[grid_index]
         xk = self.xk[None, None, ...]
         lk = self.lk[None, None, ...]
         dxksq = numexpr.evaluate('((xg-xk)/lk)**2.0')
@@ -111,7 +115,7 @@ class AnisoSEM:
         fsig_ek = numexpr.evaluate('sum(f * sfk, 2)')
 
         # Compute sum
-        u = np.squeeze( np.einsum('...ij,...j', self.ag, fsig_ek)
+        u = np.squeeze( np.einsum('...ij,...j', self.ag[grid_index], fsig_ek)
                 ) / np.sqrt(self.Nk)
 
         return u
@@ -149,16 +153,16 @@ class AnisoSEM:
                 1. / pyk_new[None, None, :, None]
                 / self.px / self.pz / lk_new ** 3.) * ek_new
 
-    def loop(self, dt, Nt):
+    def loop(self, dt, Nt, grid_index):
         start_time = time.perf_counter()
 
-        u = np.zeros(np.shape(self.xg)[:2] + (3, Nt))
+        u = np.zeros(np.shape(self.xg[grid_index])[:2] + (3, Nt))
         print('Time step %d/%d' % (0, Nt), end="")
         for i in range(Nt):
             if not np.mod(i, 50):
                 print('\r', end="")
                 print('Time step %d/%d' % (i, Nt), end="")
-            u[..., i] = self.evaluate()
+            u[..., i] = self.evaluate(grid_index)
             self.convect(dt)
 
         print('\nElapsed time:', time.perf_counter() - start_time, "seconds")
@@ -309,11 +313,11 @@ if __name__ == '__main__':
 
     zg, yg = np.meshgrid(zv, yv)
 
-    BL.set_grid(yg,zg)
+    BL.add_grid(yg,zg)
 
     dt = 0.02*D
     nt = 10000
-    BL.loop(dt, nt)
+    BL.loop(dt, nt,0)
 
     BL.plot_output(yv,dt)
     plt.show()
