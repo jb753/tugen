@@ -217,9 +217,7 @@ class AnisoSEM:
         Nt = shu[2]
         Ny = shu[0]
         Nz = shu[1]
-        print(shu)
 
-        
         Lam = np.empty((Ny,Nz))
         for i in range(Ny):
             for j in range(Nz):
@@ -232,9 +230,11 @@ class AnisoSEM:
 
         a[1].plot(self.L_target,self.y,'x')
 
-        print(np.mean(Lam)*dt)
-
         plt.tight_layout()
+
+        ux = self.u[3,0,0,:]
+        f1,a1 = plt.subplots()
+        a1.plot(ux,'-x')
         #plt.show()
 
 
@@ -271,7 +271,6 @@ class BoundaryLayer(AnisoSEM):
         ww = np.concatenate((dat[:-1,3],np.ones((Ny2,))*dat[-1,3]))
         uv = -np.concatenate((dat[:-1,4],np.ones((Ny2,))*dat[-1,4]))
 
-
         # f,a = plt.subplots()
         # for i in range(1,5):
         #     a.plot(dat[:,i],dat[:,0],'-x')
@@ -285,14 +284,16 @@ class BoundaryLayer(AnisoSEM):
 
         kappa = 0.41
         L = np.interp(y,[0., del_99, 2*L_inf], [1e-9, del_99*kappa, L_inf])
-        Lclip = np.maximum(L,kappa*del_99/5.)
+        Lclip = kappa*del_99/5.
+        L = np.maximum(L,Lclip)
 
         z = np.array([-w/2., w/2.])
 
-        super().__init__(y, z, uu, vv, ww, uv, Lclip, Dens)
+        # Now we need to work out the optimum dt and Dens for this case
+        nstep_eddy = 25
+        dt = Lclip / nstep_eddy
 
-def worker_sum(x):
-    return np.sum(np.prod(x[0], -1, keepdims=True) * x[1], 2)
+        super().__init__(y, z, uu, vv, ww, uv, L, Dens)
 
 
 if __name__ == '__main__':
@@ -301,7 +302,7 @@ if __name__ == '__main__':
     D = 0.005
     BL = BoundaryLayer(D, 800., 2.*D, 2.*D, 0.05, D, 100.)
 
-    BL.plot_input()
+    # BL.plot_input()
 
     zv = np.linspace(-1., 1., 3) * D
     yv = np.linspace(0.0001, 2., 21) * D
