@@ -16,7 +16,9 @@ class AnisoSEM:
     def __init__(self, y, z, uu, vv, ww, uv, L, Dens=100., fsh='quadratic'):
         """Initialise using target Reynolds stresses and length scales."""
 
+
         # Correct length scale
+        self.L_target = L
         L = L* quadratic_Cf
 
         # Store input data
@@ -165,7 +167,7 @@ class AnisoSEM:
         return
 
     def plot_input(self):
-        f, a = plt.subplots(1, 3, sharey=True)
+        f, a = plt.subplots(1, 2, sharey=True)
         a[0].plot(self.R[:,0,0], self.y, 'x', label="$\overline{u\'u\'}$")
         a[0].plot(self.R[:,1,1], self.y, 'x', label="$\overline{v\'v\'}$")
         a[0].plot(self.R[:,2,2], self.y, 'x', label="$\overline{w\'w\'}$")
@@ -177,17 +179,11 @@ class AnisoSEM:
         a[0].set_xlabel("Reynolds Stress, $\overline{u_i\'u_j\'}$")
         a[1].set_xlabel("Length Scale, $\ell/\delta$")
 
-        a[2].plot(self.py, self.y)
-        a[2].plot(self.cpy, self.y)
-        a[2].set_xlabel(r"Probability Density, $p(y)$")
-
         a[0].legend()
         plt.tight_layout()
         plt.show()
 
-    def plot_output(self,yg,nstep_cycle):
-        # yg = self.xg[0,:,0]
-
+    def plot_output(self,yg,dt):
         f, a = plt.subplots(1, 2)
         a[0].plot(self.R[:,0,0], self.y, 'x', label="$\overline{u\'u\'}$")
         a[0].plot(self.R[:,1,1], self.y, 'x', label="$\overline{v\'v\'}$")
@@ -223,18 +219,20 @@ class AnisoSEM:
         Nz = shu[1]
         print(shu)
 
+        
         Lam = np.empty((Ny,Nz))
         for i in range(Ny):
             for j in range(Nz):
                 uxnow = ux[i,j,:]
                 Rxxnow = (np.correlate(
                         uxnow,uxnow,mode='full')/np.mean(uxnow**2.)/Nt)[Nt-1:]
-                Lam[i,j] = np.trapz(Rxxnow[:nstep_cycle*5])
+                Lam[i,j] = np.trapz(Rxxnow[:100])
 
-        a[1].plot(np.mean(Lam,1)/nstep_cycle,yg,'-x')
-        a[1].set_xlim([0.,2.])
+        a[1].plot(np.mean(Lam,1)*dt,yg,'-o')
 
-        print(np.mean(Lam)/nstep_cycle)
+        a[1].plot(self.L_target,self.y,'x')
+
+        print(np.mean(Lam)*dt)
 
         plt.tight_layout()
         #plt.show()
@@ -256,51 +254,65 @@ class BoundaryLayer(AnisoSEM):
         cf = 0.025*Re_theta**-0.25 # Kays (1980)
         dat[:,1:] = dat[:,1:] * np.sqrt(cf/2.)
 
-        # # Raise Reynolds stresses in main-stream
-        iinf = dat[:,0] > 0.2
-        dat[iinf,1:4] = np.where(dat[iinf,1:4]<Tu_inf,Tu_inf,dat[iinf,1:4])
+        # # Raise Reynolds stresses in main-stream to turbulence level
+        for i in range(1,4):
+            ipeak = np.argmax(dat[:,i])
+            dat[ipeak:,i] = np.where(dat[ipeak:,i]<Tu_inf,Tu_inf,dat[ipeak:,i])
 
         # Use bl thickness to scale y
-        dat[:,0] = dat[:,0] * del_99
+        y = dat[:,0] * del_99
 
-        f,a = plt.subplots()
-        for i in range(1,5):
-            a.plot(dat[:,i],dat[:,0],'-x')
-        a.set_ylim([0.,2.*del_99])
+        # Extend input data into free stream
+        Ny2 = int((h-y[-1])/(y[-1]-y[-2]))
+        y = np.concatenate((y[:-1],np.linspace(y[-1],h,Ny2)))
 
-        plt.show()
+        uu = np.concatenate((dat[:-1,1],np.ones((Ny2,))*dat[-1,1]))
+        vv = np.concatenate((dat[:-1,2],np.ones((Ny2,))*dat[-1,2]))
+        ww = np.concatenate((dat[:-1,3],np.ones((Ny2,))*dat[-1,3]))
+        uv = -np.concatenate((dat[:-1,4],np.ones((Ny2,))*dat[-1,4]))
 
-        super().__init__(yg,
-                         Re_stress_g['uu'],
-                         Re_stress_g['vv'],
-                         Re_stress_g['ww'],
-                         -Re_stress_g['uv'],
-                         L_inf,
-                         del_99,
-                         Dens=Dens)
 
-        return
+        # f,a = plt.subplots()
+        # for i in range(1,5):
+        #     a.plot(dat[:,i],dat[:,0],'-x')
+        # a.set_ylim([0.,2.*del_99])
+        # plt.show()
 
+        # Now define length scale variation
+        # l = kappa * 0.2 * del_99 at y/del_99 = 0.2
+        # l = kappa * y at y/del_99 = 1
+        # l = Linf at y = Linf
+
+        kappa = 0.41
+        L = np.interp(y,[0., del_99, 2*L_inf], [1e-9, del_99*kappa, L_inf])
+        Lclip = np.maximum(L,kappa*del_99/5.)
+
+        z = np.array([-w/2., w/2.])
+
+        super().__init__(y, z, uu, vv, ww, uv, Lclip, Dens)
 
 def worker_sum(x):
     return np.sum(np.prod(x[0], -1, keepdims=True) * x[1], 2)
 
 
 if __name__ == '__main__':
-    # main_old()
-    # quit()
 
     #def __init__(self, del_99, Re_theta, w, h, Tu_inf, L_inf, Dens):
     D = 0.005
-    BL = BoundaryLayer(D, 800., 2.*D, 4.*D, 0.05, D, 10.)
+    BL = BoundaryLayer(D, 800., 2.*D, 2.*D, 0.05, D, 100.)
 
     BL.plot_input()
-    zgv_in = np.linspace(-0.1, .2, 2) * 0.005
-    ygv_in = np.linspace(0.0001, .003, 17)
-    #ygv_in = BL.y
 
-    zg_in, yg_in = np.meshgrid(zgv_in, ygv_in)
+    zv = np.linspace(-1., 1., 3) * D
+    yv = np.linspace(0.0001, 2., 21) * D
 
-    BL.loop(yg_in, zg_in, .02 * .005, 3200)
+    zg, yg = np.meshgrid(zv, yv)
 
-    BL.plot_output(yg_in)
+    BL.set_grid(yg,zg)
+
+    dt = 0.02*D
+    nt = 10000
+    BL.loop(dt, nt)
+
+    BL.plot_output(yv,dt)
+    plt.show()
